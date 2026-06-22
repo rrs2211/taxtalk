@@ -203,15 +203,23 @@ export default function CADashboard({ caUserId }) {
         .from('ca_queue')
         .select(`
           *,
-          returns (id, status, profile, itr_form, computation, extracted_data),
-          profiles:user_id (full_name, email, pan, phone),
-          flags (*)
+          returns (id, status, profile, itr_form, computation, extracted_data,
+            flags (*)
+          ),
+          profiles:user_id (full_name, email, pan, phone)
         `)
         .order('priority', { ascending:true })
         .order('created_at', { ascending:true });
 
       if (error) throw error;
-      setQueue(data || []);
+
+      // Flatten flags up to the entry level so the rest of the component works unchanged
+      const normalised = (data || []).map(entry => ({
+        ...entry,
+        flags: entry.returns?.flags || [],
+      }));
+
+      setQueue(normalised);
     } catch (e) {
       setError(e.message);
     } finally {
