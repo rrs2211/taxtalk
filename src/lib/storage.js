@@ -31,6 +31,15 @@ async function getAuthToken() {
 export async function uploadDocument(file, returnId, docType, onProgress) {
   const token = await getAuthToken();
 
+  // Detect content type — file.type can be empty on Windows for PDFs
+  const ext = file.name.split('.').pop().toLowerCase();
+  const contentType = file.type ||
+    (ext === 'pdf'  ? 'application/pdf' :
+     ext === 'png'  ? 'image/png' :
+     ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
+     ext === 'webp' ? 'image/webp' :
+     'application/pdf');
+
   // Step 1: Request a presigned PUT URL
   const urlRes = await fetch('/api/upload-url', {
     method: 'POST',
@@ -43,7 +52,7 @@ export async function uploadDocument(file, returnId, docType, onProgress) {
       docType,
       fileName:    file.name,
       fileSize:    file.size,
-      contentType: file.type || 'application/pdf',
+      contentType,
     }),
   });
 
@@ -55,7 +64,7 @@ export async function uploadDocument(file, returnId, docType, onProgress) {
   const { uploadUrl, key } = await urlRes.json();
 
   // Step 2: Upload directly to R2 via XHR (for progress events)
-  await uploadToR2WithProgress(uploadUrl, file, file.type || 'application/pdf', onProgress);
+  await uploadToR2WithProgress(uploadUrl, file, contentType, onProgress);
 
   // Step 3: Register the upload in Supabase
   const regRes = await fetch('/api/register-upload', {

@@ -1,127 +1,76 @@
-// api/lib/r2.js
-// Cloudflare R2 storage — server-side only (Vercel serverless functions).
-// R2 is S3-compatible, so we use AWS SDK v3 with a custom endpoint.
-// The client, bucket name, and credentials NEVER reach the browser.
-//
-// Bucket layout:
-//   tax-documents/{userId}/{returnId}/{docType}_{timestamp}.pdf
-//
-// All objects are PRIVATE — access only via short-lived presigned URLs (5 min).
-// Objects are tagged with userId + returnId for lifecycle rules.
+// api/lib/r2.js — Cloudflare R2 via AWS SDK v3 (S3-compatible)
 
-import {
-  S3Client,
-  PutObjectCommand,
-  GetObjectCommand,
-  DeleteObjectCommand,
-  HeadObjectCommand,
-} from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 function getR2Client() {
-  const accountId  = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const accessKey  = process.env.R2_ACCESS_KEY_ID;
-  const secretKey  = process.env.R2_SECRET_ACCESS_KEY;
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const accessKey = process.env.R2_ACCESS_KEY_ID;
+  const secretKey = process.env.R2_SECRET_ACCESS_KEY;
 
   if (!accountId || !accessKey || !secretKey) {
-    throw new Error('Missing R2 credentials: CLOUDFLARE_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY');
+    throw new Error(
+      `Missing R2 credentials. In Vercel → Settings → Environment Variables, ensure these are set: CLOUDFLARE_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY. Got: accountId=${!!accountId} accessKey=${!!accessKey} secretKey=${!!secretKey}`
+    );
   }
 
   return new S3Client({
     region: 'auto',
     endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
     credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
+    // Force path-style for R2 compatibility
+    forcePathStyle: false,
   });
 }
 
-const BUCKET = process.env.R2_BUCKET_NAME || 'taxtalk-documents';
+const getBucket = () => process.env.R2_BUCKET_NAME || 'taxtalk-documents';
 
-// ─── Upload a file buffer to R2 ──────────────────────────────────────────────
-
-export async function uploadToR2(key, fileBuffer, contentType, metadata = {}) {
-  const client = getR2Client();
-
-  await client.send(new PutObjectCommand({
-    Bucket: BUCKET,
-    Key: key,
-    Body: fileBuffer,
-    ContentType: contentType,
-    Metadata: {
-      // Store owner info in object metadata for audit + lifecycle
-      ...Object.fromEntries(
-        Object.entries(metadata).map(([k, v]) => [k, String(v)])
-      ),
-    },
-    // Objects not accessed in 7 years can be deleted via lifecycle rule
-    // (ICAI requires 6 years retention post-filing)
-    Tagging: `userId=${metadata.userId || 'unknown'}&returnId=${metadata.returnId || 'unknown'}`,
-  }));
-
-  return key;
-}
-
-// ─── Generate a presigned GET URL (default 5 minutes) ────────────────────────
-
-export async function getPresignedUrl(key, expiresInSeconds = 300) {
-  const client = getR2Client();
-
-  const url = await getSignedUrl(
-    client,
-    new GetObjectCommand({ Bucket: BUCKET, Key: key }),
-    { expiresIn: expiresInSeconds }
-  );
-
-  return url;
-}
-
-// ─── Generate a presigned PUT URL for direct browser upload ──────────────────
-// Use this to let the browser upload directly to R2 without routing
-// the file through Vercel (avoids 4.5MB Vercel body limit on free plan).
-
+// ── Presigned PUT URL — for direct browser upload ─────────────────────────────
 export async function getPresignedUploadUrl(key, contentType, expiresInSeconds = 300) {
   const client = getR2Client();
-  const { PutObjectCommand: Put } = await import('@aws-sdk/client-s3');
-
-  const url = await getSignedUrl(
+  return getSignedUrl(
     client,
-    new Put({
-      Bucket: BUCKET,
-      Key: key,
-      ContentType: contentType,
-    }),
+    new PutObjectCommand({ Bucket: getBucket(), Key: key, ContentType: contentType }),
     { expiresIn: expiresInSeconds }
   );
-
-  return url;
 }
 
-// ─── Delete an object ────────────────────────────────────────────────────────
-
-export async function deleteFromR2(key) {
+// ── Presigned GET URL — for reading a stored file ─────────────────────────────
+export async function getPresignedUrl(key, expiresInSeconds = 300) {
   const client = getR2Client();
-  await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+  return getSignedUrl(
+    client,
+    new GetObjectCommand({ Bucket: getBucket(), Key: key }),
+    { expiresIn: expiresInSeconds }
+  );
 }
 
-// ─── Check if object exists ──────────────────────────────────────────────────
-
+// ── Check object exists — returns true/false, never throws ───────────────────
 export async function objectExists(key) {
-  const client = getR2Client();
   try {
-    await client.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    const client = getR2Client();
+    await client.send(new HeadObjectCommand({ Bucket: getBucket(), Key: key }));
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    // 404 = not found (expected). Other errors = credential/config issue — re-throw
+    const status = err?.$metadata?.httpStatusCode || err?.statusCode;
+    if (status === 404 || err?.name === 'NotFound') return false;
+    // Re-throw so register-upload gives a useful 500 error instead of silent 400
+    throw new Error(`R2 HeadObject failed (status ${status}): ${err?.message}. Check R2 credentials in Vercel.`);
   }
 }
 
-// ─── Build the standard R2 key for a tax document ────────────────────────────
+// ── Delete ────────────────────────────────────────────────────────────────────
+export async function deleteFromR2(key) {
+  const client = getR2Client();
+  await client.send(new DeleteObjectCommand({ Bucket: getBucket(), Key: key }));
+}
 
+// ── Build the object key for a document ──────────────────────────────────────
 export function buildDocKey(userId, returnId, docType, originalName) {
-  const ext  = originalName.split('.').pop().toLowerCase();
-  const ts   = Date.now();
-  // Sanitise inputs — no path traversal
+  const ext        = (originalName.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '');
   const safeUser   = userId.replace(/[^a-zA-Z0-9-]/g, '');
   const safeReturn = returnId.replace(/[^a-zA-Z0-9-]/g, '');
   const safeType   = docType.replace(/[^a-zA-Z0-9_]/g, '');
-  return `tax-documents/${safeUser}/${safeReturn}/${safeType}_${ts}.${ext}`;
+  return `tax-documents/${safeUser}/${safeReturn}/${safeType}_${Date.now()}.${ext}`;
 }
