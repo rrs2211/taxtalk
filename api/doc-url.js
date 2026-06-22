@@ -29,7 +29,7 @@ export default async function handler(req, res) {
   try {
     const url = await getPresignedUrl(doc.storage_path, 300);
     if (isCA && !isOwner) {
-      await supabase.from('audit_log').insert({ return_id: doc.return_id, user_id: user.id, action: 'ca_viewed_document', detail: { documentId } }).catch(() => {});
+      await supabase.from('audit_log').insert({ return_id: doc.return_id, user_id: user.id, action: 'ca_viewed_document', detail: { documentId } }).then(() => {}).catch(() => {});
     }
     return res.status(200).json({ url, expiresIn: 300 });
   } catch (err) {

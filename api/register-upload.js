@@ -41,13 +41,13 @@ export default async function handler(req, res) {
     return res.status(500).json({ message: `Database error: ${error.message}` });
   }
 
-  // Audit log (non-blocking)
+  // Audit log (non-blocking — fire and forget)
   supabase.from('audit_log').insert({
     return_id: returnId,
     user_id:   user.id,
     action:    `${docType}_uploaded`,
     detail:    { fileName, fileSizeKb, key },
-  }).catch(e => console.warn('audit log failed:', e.message));
+  }).then(() => {}).catch(e => console.warn('audit log failed:', e?.message));
 
   return res.status(200).json({ document: data });
 }

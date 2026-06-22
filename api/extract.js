@@ -114,14 +114,14 @@ export default async function handler(req, res) {
       return_id: doc.return_id, user_id: user.id,
       action: `${doc.doc_type}_extracted`,
       detail: { documentId, confidence: extracted.confidence, tokens: aiData.usage },
-    }).catch(() => {});
+    }).then(() => {}).catch(() => {});
 
     console.log('Extracted:', doc.doc_type, 'confidence:', extracted.confidence);
     return res.status(200).json({ extracted, documentId });
 
   } catch (err) {
     console.error('extract error:', err.message);
-    await supabase.from('documents').update({ extraction_status:'failed' }).eq('id', documentId).catch(() => {});
+    try { await supabase.from('documents').update({ extraction_status:'failed' }).eq('id', documentId); } catch {}
     return res.status(500).json({ message: err.message || 'Extraction failed. Please try again.' });
   }
 }
