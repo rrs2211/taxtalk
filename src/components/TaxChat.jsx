@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Upload, CheckCircle, ChevronRight, FileText, RotateCcw, Send, Loader, AlertCircle, Info } from 'lucide-react';
 import { computeTax, formatINR, formatINRShort } from '../data/flow.js';
+import CGCollector from './CGCollector.jsx';
 import { Button, Card, Badge } from './UI.jsx';
 import { useReturn } from '../hooks/useReturn.js';
 import { supabase } from '../lib/supabase.js';
@@ -25,6 +26,7 @@ const S = {
   OS_INCOME: 'os_income',
   HP_TYPE: 'hp_type', HP_RENT: 'hp_rent', HP_MUNI: 'hp_muni',
   CG_CONFIRM: 'cg_confirm',
+  CG_COLLECT: 'cg_collect',   // full sale/purchase collection
   // Deductions
   DED_80C: 'ded_80c', DED_80C_AMT: 'ded_80c_amt',
   DED_OTHER: 'ded_other', DED_MED_AMT: 'ded_med_amt',
@@ -253,12 +255,11 @@ function ComputationCard({ initialData, initialInputs, aisFlags, onApprove, subm
           </div>
         </>}
 
-        {inp.capitalGains?.enabled && <>
-          <SH c="Capital gains"/>
-          {(inp.capitalGains.shares?.stcg111a||0)>0 && <EditField label="STCG — Equity (111A @ 20%)" value={inp.capitalGains.shares.stcg111a} onChange={v=>setInp(p=>({...p,capitalGains:{...p.capitalGains,shares:{...p.capitalGains.shares,stcg111a:v}}}))} />}
-          {(inp.capitalGains.shares?.ltcg112a||0)>0 && <EditField label="LTCG — Equity (112A @ 12.5%)" value={inp.capitalGains.shares.ltcg112a} onChange={v=>setInp(p=>({...p,capitalGains:{...p.capitalGains,shares:{...p.capitalGains.shares,ltcg112a:v}}}))} />}
-          {(inp.capitalGains.property?.ltcg||0)>0 && <EditField label="LTCG — Property (@ 12.5%)" value={inp.capitalGains.property.ltcg} onChange={v=>setInp(p=>({...p,capitalGains:{...p.capitalGains,property:{...p.capitalGains.property,ltcg:v}}}))} />}
-        </>}
+        <SH c="Capital gains"/>
+        <div style={{ padding:'4px 0' }}>
+          <CGCollector compact value={inp.capitalGains || { enabled:false }}
+            onChange={cg => setInp(p => ({...p, capitalGains: cg}))} />
+        </div>
 
         <SH c="Deductions — old regime only"/>
         <EditField label="Section 80C" value={inp.deductions80C||0} onChange={set('deductions80C')} note="max ₹1,50,000" />
@@ -272,6 +273,22 @@ function ComputationCard({ initialData, initialInputs, aisFlags, onApprove, subm
         <EditField label="TDS deducted (salary + other)" value={inp.tdsDeducted||0} onChange={set('tdsDeducted')} />
         <EditField label="Advance tax paid" value={inp.advanceTax||0} onChange={set('advanceTax')} />
         <EditField label="Self-assessment tax" value={inp.selfAssessment||0} onChange={set('selfAssessment')} />
+      </div>
+
+      {/* Bank account — required for refund and ITR filing */}
+      <div style={{ marginBottom:14 }}>
+        <div style={{ fontSize:12, fontWeight:700, color:!(inp.bankAccounts||[]).some(b=>b.BankAccountNo&&b.IFSCCode)?"var(--danger)":"var(--text-muted)", textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:8 }}>Bank account for refund {!(inp.bankAccounts||[]).some(b=>b.BankAccountNo&&b.IFSCCode) && <span>⚠️ Required</span>}</div>
+        {(inp.bankAccounts||[{IFSCCode:"",BankAccountNo:"",BankName:"",UseForRefund:"Y"}]).map((b,i)=>(
+          <div key={i} style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, padding:"8px 12px", background:"var(--surface-2)", borderRadius:8, marginBottom:6, border:(!b.BankAccountNo||!b.IFSCCode)?"1.5px solid var(--danger)":"1px solid var(--border)" }}>
+            <div><div style={{ fontSize:11, fontWeight:600, color:"var(--text-secondary)", marginBottom:3 }}>Account number *</div>
+              <input value={b.BankAccountNo||""} onChange={e=>setInp(p=>({...p,bankAccounts:(p.bankAccounts||[{}]).map((x,j)=>j===i?{...x,BankAccountNo:e.target.value}:x)}))} placeholder="Account number" style={{ width:"100%", padding:"7px 10px", border:"1px solid var(--border-strong)", borderRadius:6, fontSize:13, outline:"none", boxSizing:"border-box" }}/></div>
+            <div><div style={{ fontSize:11, fontWeight:600, color:"var(--text-secondary)", marginBottom:3 }}>IFSC code *</div>
+              <input value={b.IFSCCode||""} onChange={e=>setInp(p=>({...p,bankAccounts:(p.bankAccounts||[{}]).map((x,j)=>j===i?{...x,IFSCCode:e.target.value.toUpperCase()}:x)}))} placeholder="SBIN0001234" style={{ width:"100%", padding:"7px 10px", border:"1px solid var(--border-strong)", borderRadius:6, fontSize:13, outline:"none", boxSizing:"border-box" }}/></div>
+          </div>
+        ))}
+        {(!(inp.bankAccounts)||inp.bankAccounts.length===0) && (
+          <button onClick={()=>setInp(p=>({...p,bankAccounts:[{IFSCCode:"",BankAccountNo:"",BankName:"",UseForRefund:"Y"}]}))} style={{ width:"100%", padding:"9px", border:"2px dashed var(--danger)", borderRadius:8, background:"var(--danger-light)", color:"var(--danger)", fontSize:13, cursor:"pointer" }}>+ Add bank account (required for refund and filing)</button>
+        )}
       </div>
 
       <div style={{ background:'var(--surface-2)', borderRadius:8, padding:'10px 14px', marginBottom:14, fontSize:13 }}>
@@ -470,8 +487,38 @@ export default function TaxChat({ userId }) {
       const stcg111a = (ais.capital_gains||[]).filter(x=>x.section==='111A').reduce((s,x)=>s+(x.gain||0),0);
       const ltcg112a = (ais.capital_gains||[]).filter(x=>x.section==='112A').reduce((s,x)=>s+(x.gain||0),0);
       const ltcgProp = (ais.capital_gains||[]).filter(x=>x.asset_type==='property').reduce((s,x)=>s+(x.gain||0),0);
+      // Store full sale/purchase details from AIS for accurate JSON generation
       if (stcg111a||ltcg112a||ltcgProp) {
-        setCG({ enabled:true, shares:{ stcg111a, ltcg112a }, property:{ ltcg:ltcgProp } });
+        const aisCG = c.capitalGains?.shares ? c.capitalGains : {};
+        const stcgEntry = (ais.capital_gains||[]).filter(x=>x.section==='111A');
+        const ltcgEntry = (ais.capital_gains||[]).filter(x=>x.section==='112A');
+        const propEntry = (ais.capital_gains||[]).filter(x=>x.asset_type==='property');
+        setCG({
+          enabled: true,
+          shares: {
+            stcg: stcgEntry.length > 0 ? {
+              saleValue:    stcgEntry.reduce((s,x)=>s+(x.sale_value||0),0),
+              purchaseCost: stcgEntry.reduce((s,x)=>s+(x.purchase_value||0),0),
+              expenses:     0,
+              gain:         stcg111a,
+            } : stcg111a,
+            ltcg: ltcgEntry.length > 0 ? {
+              saleValue:    ltcgEntry.reduce((s,x)=>s+(x.sale_value||0),0),
+              purchaseCost: ltcgEntry.reduce((s,x)=>s+(x.purchase_value||0),0),
+              fmv31Jan18:   ltcgEntry.reduce((s,x)=>s+(x.purchase_value||0),0), // AIS uses purchase as FMV
+              expenses:     0,
+              gain:         ltcg112a,
+            } : ltcg112a,
+          },
+          property: {
+            ltcg: propEntry.length > 0 ? {
+              saleValue:   propEntry.reduce((s,x)=>s+(x.sale_value||0),0),
+              indexedCost: propEntry.reduce((s,x)=>s+(x.purchase_value||0),0),
+              expenses:    0,
+              gain:        ltcgProp,
+            } : ltcgProp,
+          },
+        });
       }
     }
 
@@ -537,9 +584,20 @@ export default function TaxChat({ userId }) {
     if (has.includes('none') || has.length===0) { addUser('Nothing else'); routeToNextStep(); return; }
     const labels = EXTRA_INCOME_TYPES.filter(t=>has.includes(t.id)&&t.id!=='none').map(t=>t.label).join(', ');
     addUser(labels);
-    if (has.includes('business') && taxProfile!=='business') { setTaxProfile('mixed'); setStep(S.BIZ_TYPE); addAI(<p>What type of business income do you have?</p>, null); }
-    else if (has.includes('hp')) { setStep(S.HP_TYPE); addAI(<p>Is your property <strong>self-occupied</strong> or <strong>rented out</strong>?</p>, null); }
-    else { routeToNextStep(); }
+    if (has.includes('business') && taxProfile!=='business') {
+      setTaxProfile('mixed'); setStep(S.BIZ_TYPE); addAI(<p>What type of business income do you have?</p>, null);
+    } else if (has.includes('cg')) {
+      // CG not pre-filled from AIS — collect manually
+      setStep(S.CG_COLLECT);
+      addAI(
+        <>
+          <p style={{ marginBottom:8 }}>Let us record your <strong>capital gains</strong> for the year.</p>
+          <p style={{ fontSize:13, color:'var(--text-muted)' }}>You will need your broker's P&L statement or annual tax report (Zerodha Tax P&L, Groww Tax Report, etc.) for accurate figures. Enter sale proceeds and purchase cost separately — the ITR requires both.</p>
+        </>, null
+      );
+    } else if (has.includes('hp')) {
+      setStep(S.HP_TYPE); addAI(<p>Is your property <strong>self-occupied</strong> or <strong>rented out</strong>?</p>, null);
+    } else { routeToNextStep(); }
   }
   function routeToNextStep() {
     if (taxProfile==='salaried'||taxProfile==='mixed') {
@@ -984,7 +1042,7 @@ export default function TaxChat({ userId }) {
       dividendIncome,
       otherIncome: otherOSIncome,
       savingsInterest, fdInterest,
-      houseProperty, capitalGains,
+      houseProperty, capitalGains,  // full object with sale/purchase details
       deductions80C, deductions80D,
       deductions80E:0, deductions80TTA: Math.min(savingsInterest, 10000),
       deductions80G:0,
@@ -1105,6 +1163,20 @@ export default function TaxChat({ userId }) {
               <Button variant="primary" onClick={confirmExtraIncome} disabled={extraIncomeTypes.length===0} style={{ alignSelf:"flex-end" }}>
                 Continue <ChevronRight size={15}/>
               </Button>
+            </div>
+          )}
+
+          {/* CG collection — full sale/purchase details */}
+          {step === S.CG_COLLECT && (
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              <CGCollector value={capitalGains || { enabled:true }} onChange={cg => setCG(cg)} />
+              <Button variant="primary" onClick={() => {
+                addUser("Capital gains details confirmed");
+                if (extraIncomeTypes.includes("hp")) {
+                  setStep(S.HP_TYPE);
+                  addAI(<p>Is your property <strong>self-occupied</strong> or <strong>rented out</strong>?</p>, null);
+                } else { routeToNextStep(); }
+              }} style={{ alignSelf:"flex-end" }}>Confirm capital gains <ChevronRight size={15}/></Button>
             </div>
           )}
 

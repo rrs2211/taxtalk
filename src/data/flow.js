@@ -1,12 +1,11 @@
 // ─── TaxTalk Tax Engine — FY 2025-26 (AY 2026-27) ───────────────────────────
-// Calculation logic ported from verified taxController.js
-// All rates verified against Income Tax Act provisions
+// Verified against taxController.js and CBDT ITR schemas
 
 export const PROFILES = {
-  salaried:   { label: 'I have a job / salary',            icon: '💼', itr: 'ITR-1' },
-  business:   { label: 'I run a business or shop',         icon: '🏪', itr: 'ITR-4' },
-  freelancer: { label: 'I am a freelancer / consultant',   icon: '💡', itr: 'ITR-4' },
-  partner:    { label: 'I am a partner in a firm',         icon: '🤝', itr: 'ITR-3' },
+  salaried:   { label: 'I have a job / salary',          icon: '💼', itr: 'ITR-1' },
+  business:   { label: 'I run a business or shop',       icon: '🏪', itr: 'ITR-4' },
+  freelancer: { label: 'I am a freelancer / consultant', icon: '💡', itr: 'ITR-4' },
+  partner:    { label: 'I am a partner in a firm',       icon: '🤝', itr: 'ITR-3' },
 };
 
 export const AGE_GROUPS = [
@@ -16,76 +15,83 @@ export const AGE_GROUPS = [
 ];
 
 export const DEDUCTION_OPTIONS = [
-  { id: 'ppf',              label: 'PPF / EPF contributions',        section: '80C' },
-  { id: 'lic',              label: 'LIC premium',                    section: '80C' },
-  { id: 'elss',             label: 'ELSS mutual fund',               section: '80C' },
-  { id: 'tuition',          label: "Children's tuition fees",        section: '80C' },
-  { id: 'homeloan_principal',label: 'Home loan principal repayment', section: '80C' },
-  { id: 'nps',              label: 'NPS (80CCD(1))',                 section: '80CCD' },
-  { id: 'none',             label: 'None of these',                  section: null },
+  { id: 'ppf',               label: 'PPF / EPF contributions',      section: '80C' },
+  { id: 'lic',               label: 'LIC premium',                  section: '80C' },
+  { id: 'elss',              label: 'ELSS mutual fund',             section: '80C' },
+  { id: 'tuition',           label: "Children's tuition fees",      section: '80C' },
+  { id: 'homeloan_principal',label: 'Home loan principal repayment',section: '80C' },
+  { id: 'nps',               label: 'NPS (80CCD(1))',               section: '80CCD' },
+  { id: 'none',              label: 'None of these',                section: null },
 ];
 
 export const OTHER_DEDUCTION_OPTIONS = [
-  { id: 'mediclaim_self',    label: 'Mediclaim — self & family',       section: '80D',   limit: 25000 },
-  { id: 'mediclaim_parents', label: 'Mediclaim — parents (senior)',    section: '80D',   limit: 50000 },
-  { id: 'home_interest',     label: 'Home loan interest',             section: '24(b)', limit: 200000 },
-  { id: 'education_loan',    label: 'Education loan interest',        section: '80E',   limit: null },
-  { id: 'savings_interest',  label: 'Savings bank interest (80TTA)',  section: '80TTA', limit: 10000 },
-  { id: 'donation',          label: 'Donation to charity / PM fund',  section: '80G',   limit: null },
-  { id: 'none',              label: 'None of these',                  section: null },
+  { id: 'mediclaim_self',    label: 'Mediclaim — self & family',     section: '80D',   limit: 25000 },
+  { id: 'mediclaim_parents', label: 'Mediclaim — parents (senior)',  section: '80D',   limit: 50000 },
+  { id: 'home_interest',     label: 'Home loan interest',           section: '24(b)', limit: 200000 },
+  { id: 'education_loan',    label: 'Education loan interest',      section: '80E',   limit: null },
+  { id: 'savings_interest',  label: 'Savings bank interest (80TTA)',section: '80TTA', limit: 10000 },
+  { id: 'donation',          label: 'Donation to charity / PM fund',section: '80G',   limit: null },
+  { id: 'none',              label: 'None of these',                section: null },
 ];
 
-// ─── Slab tax (base, before surcharge/cess) ──────────────────────────────────
+// ─── CG helper: extract net gain from either a number or detail object ────────
+export function cgGain(val) {
+  if (!val) return 0;
+  if (typeof val === 'object' && val !== null) return Math.max(0, Number(val.gain) || 0);
+  return Math.max(0, Number(val) || 0);
+}
+export function cgSaleValue(val) {
+  if (typeof val === 'object' && val !== null) return Number(val.saleValue) || 0;
+  return 0;
+}
+export function cgCost(val) {
+  if (typeof val === 'object' && val !== null)
+    return Number(val.purchaseCost || val.indexedCost || val.fmv31Jan18) || 0;
+  return 0;
+}
+export function cgExpenses(val) {
+  if (typeof val === 'object' && val !== null) return Number(val.expenses) || 0;
+  return 0;
+}
 
+// ─── Slab tax ─────────────────────────────────────────────────────────────────
 function calcSlabTax(income, regime, ageGroup = '<60') {
   const inc = Math.max(0, Math.round(income));
   if (inc === 0) return 0;
-
   if (regime === 'new') {
-    // FY 2025-26 New Regime slabs (Budget 2025)
     if (inc <= 400000)  return 0;
     if (inc <= 800000)  return Math.round((inc - 400000) * 0.05);
     if (inc <= 1200000) return 20000  + Math.round((inc - 800000)  * 0.10);
     if (inc <= 1600000) return 60000  + Math.round((inc - 1200000) * 0.15);
     if (inc <= 2000000) return 120000 + Math.round((inc - 1600000) * 0.20);
     if (inc <= 2400000) return 200000 + Math.round((inc - 2000000) * 0.25);
-    return                      300000 + Math.round((inc - 2400000) * 0.30);
+    return                     300000 + Math.round((inc - 2400000) * 0.30);
   } else {
-    // Old Regime — age-based basic exemption limits
     const limit = ageGroup === '>80' ? 500000 : ageGroup === '60-80' ? 300000 : 250000;
-    if (inc <= limit)    return 0;
-    if (inc <= 500000)   return Math.round((inc - limit)   * 0.05);
-    if (inc <= 1000000)  return Math.round((500000 - limit) * 0.05) + Math.round((inc - 500000)  * 0.20);
-    return                      Math.round((500000 - limit) * 0.05) + 100000 + Math.round((inc - 1000000) * 0.30);
+    if (inc <= limit)   return 0;
+    if (inc <= 500000)  return Math.round((inc - limit) * 0.05);
+    if (inc <= 1000000) return Math.round((500000 - limit) * 0.05) + Math.round((inc - 500000) * 0.20);
+    return                     Math.round((500000 - limit) * 0.05) + 100000 + Math.round((inc - 1000000) * 0.30);
   }
 }
 
-// ─── Rebate u/s 87A ──────────────────────────────────────────────────────────
-
+// ─── Rebate 87A ───────────────────────────────────────────────────────────────
 function calcRebate87A(taxableIncome, baseTax, regime) {
-  if (regime === 'new') {
-    // New regime: rebate up to ₹60,000 if income ≤ ₹12,00,000 (FY 2025-26)
-    if (taxableIncome <= 1200000) return Math.min(baseTax, 60000);
-  } else {
-    // Old regime: rebate up to ₹12,500 if income ≤ ₹5,00,000
-    if (taxableIncome <= 500000) return Math.min(baseTax, 12500);
-  }
+  if (regime === 'new'  && taxableIncome <= 1200000) return Math.min(baseTax, 60000);
+  if (regime === 'old'  && taxableIncome <= 500000)  return Math.min(baseTax, 12500);
   return 0;
 }
 
-// ─── Surcharge ───────────────────────────────────────────────────────────────
-
+// ─── Surcharge ────────────────────────────────────────────────────────────────
 function calcSurcharge(taxableIncome, taxAfterRebate, regime) {
   let rate = 0;
   if (regime === 'new') {
-    // New regime: surcharge capped at 25% (no 37% in new regime)
-    if (taxableIncome > 50000000)      rate = 0.25;
+    if      (taxableIncome > 50000000) rate = 0.25;
     else if (taxableIncome > 20000000) rate = 0.25;
     else if (taxableIncome > 10000000) rate = 0.15;
     else if (taxableIncome > 5000000)  rate = 0.10;
   } else {
-    // Old regime
-    if (taxableIncome > 50000000)      rate = 0.37;
+    if      (taxableIncome > 50000000) rate = 0.37;
     else if (taxableIncome > 20000000) rate = 0.25;
     else if (taxableIncome > 10000000) rate = 0.15;
     else if (taxableIncome > 5000000)  rate = 0.10;
@@ -93,183 +99,170 @@ function calcSurcharge(taxableIncome, taxAfterRebate, regime) {
   return Math.round(taxAfterRebate * rate);
 }
 
-// ─── Capital gains tax (special rates, outside slab) ─────────────────────────
-
+// ─── CG tax at special rates ──────────────────────────────────────────────────
 function calcCGTax(cg) {
   if (!cg?.enabled) return 0;
   let tax = 0;
-  // STCG on equity/equity funds u/s 111A — 20% (Budget 2024 raised from 15%)
-  const stcgShares = Math.max(0, Number(cg.shares?.stcg111a) || 0);
-  if (stcgShares > 0) tax += Math.round(stcgShares * 0.20);
-  // LTCG on equity u/s 112A — 12.5% above ₹1.25 lakh exemption
-  const ltcgShares = Math.max(0, Number(cg.shares?.ltcg112a) || 0);
-  if (ltcgShares > 125000) tax += Math.round((ltcgShares - 125000) * 0.125);
-  // LTCG on property — 12.5% without indexation (Budget 2024)
-  const ltcgProp = Math.max(0, Number(cg.property?.ltcg) || 0);
-  if (ltcgProp > 0) tax += Math.round(ltcgProp * 0.125);
+  const stcg = cgGain(cg.shares?.stcg || cg.shares?.stcg111a);
+  if (stcg > 0) tax += Math.round(stcg * 0.20);           // 111A @ 20%
+  const ltcg = cgGain(cg.shares?.ltcg || cg.shares?.ltcg112a);
+  if (ltcg > 125000) tax += Math.round((ltcg - 125000) * 0.125); // 112A @ 12.5% above ₹1.25L
+  const ltcgProp = cgGain(cg.property?.ltcgDetail || cg.property?.ltcg);
+  if (ltcgProp > 0) tax += Math.round(ltcgProp * 0.125);  // Property LTCG @ 12.5%
   return tax;
 }
 
 // ─── House property income ────────────────────────────────────────────────────
-
 export function calcHousePropertyIncome(hp) {
   if (!hp?.enabled) return 0;
+  const interest = Number(hp.interestPaid) || 0;
   if (hp.type === 'Rented') {
     const rent     = Number(hp.rentReceived)  || 0;
-    const municipal = Number(hp.municipalTaxes) || 0;
-    const interest = Number(hp.interestPaid)  || 0;
-    // NAV × 70% (30% standard deduction) − interest
-    const nav = rent - municipal;
-    return Math.round((nav * 0.70) - interest);
+    const muni     = Number(hp.municipalTaxes)|| 0;
+    // Annual value = Rent − Municipal tax
+    // Net = Annual value − 30% std deduction − Loan interest
+    const annualValue = Math.max(0, rent - muni);
+    const stdDedn     = Math.round(annualValue * 0.30);
+    return annualValue - stdDedn - interest;
   } else {
-    // Self-occupied: only interest deductible, capped at −₹2L
-    const interest = Number(hp.interestPaid) || 0;
+    // Self-occupied: interest deductible up to ₹2L, always negative
     return Math.max(-200000, -interest);
   }
 }
 
-// ─── Main tax computation ─────────────────────────────────────────────────────
-
+// ─── Main computation ─────────────────────────────────────────────────────────
 export function computeTax(data) {
   const {
-    grossSalary      = 0,
-    businessIncome   = 0,          // Presumptive / actual business / partner profit (after disallowances)
-    disallowances    = 0,          // Sec 40A(3) cash pmts, personal exp — added back to business income
-    interestIncome   = 0,          // Schedule OS — savings + FD interest combined
-    dividendIncome   = 0,          // Schedule OS — dividends
-    otherIncome      = 0,          // Schedule OS — gifts, misc (always taxable, no 80TTA benefit)
-    deductions80C    = 0,
-    deductions80D    = 0,
-    deductions24b    = 0,          // Home loan interest (Sec 24b) — only if HP not enabled
-    deductions80E    = 0,          // Education loan interest
-    deductions80TTA  = 0,          // Savings interest (max ₹10K)
-    deductions80G    = 0,          // Donations
-    tdsDeducted      = 0,
-    advanceTax       = 0,
-    selfAssessment   = 0,
-    ageGroup         = '<60',
-    houseProperty    = null,
-    capitalGains     = null,
-    professionalTax  = 0,
+    grossSalary       = 0,
+    businessIncome    = 0,
+    interestIncome    = 0,   // savings + FD combined
+    dividendIncome    = 0,
+    otherIncome       = 0,   // gifts, misc OS income
+    deductions80C     = 0,
+    deductions80D     = 0,
+    deductions24b     = 0,   // only when HP not enabled
+    deductions80E     = 0,
+    deductions80TTA   = 0,   // savings interest deduction (max ₹10K, old regime)
+    deductions80G     = 0,
+    tdsDeducted       = 0,
+    advanceTax        = 0,
+    selfAssessment    = 0,
+    ageGroup          = '<60',
+    houseProperty     = null,
+    capitalGains      = null,
+    professionalTax   = 0,
     standardDeduction = 75000,
   } = data;
 
-  // ── Income heads ───────────────────────────────────────────────────────────
+  // ── Income heads ──────────────────────────────────────────────────────────
   const hpIncome     = calcHousePropertyIncome(houseProperty);
+  // CG that goes into slab (non-equity CG at normal rates)
   const cgSlabIncome = Math.max(0,
-    (Number(capitalGains?.property?.stcg) || 0) +
-    (Number(capitalGains?.other)          || 0)
+    cgGain(capitalGains?.property?.stcg) +
+    (Number(capitalGains?.other) || 0)
   );
   const osIncome = Math.max(0,
     (Number(interestIncome) || 0) +
     (Number(dividendIncome) || 0) +
-    (Number(otherIncome)    || 0)   // legacy support
+    (Number(otherIncome)    || 0)
   );
 
-  // ── Gross total income (all five heads) ────────────────────────────────────
-  const salaryAfterStdDed = Math.max(0, grossSalary - standardDeduction - professionalTax);
+  // ── Gross total ───────────────────────────────────────────────────────────
+  // Standard deduction only when salary > 0
+  const actualStdDed      = grossSalary > 0 ? Math.min(standardDeduction, grossSalary) : 0;
+  const salaryAfterStdDed = Math.max(0, grossSalary - actualStdDed - (Number(professionalTax) || 0));
   const grossTotal = salaryAfterStdDed
-    + Math.max(0, Number(businessIncome) || 0)   // ← was missing
+    + Math.max(0, Number(businessIncome) || 0)
     + osIncome
     + hpIncome
     + cgSlabIncome;
 
-  // ── Deductions (Chapter VI-A) — old regime only ───────────────────────────
+  // ── Chapter VI-A deductions (old regime only) ─────────────────────────────
   const cap80C   = Math.min(Number(deductions80C)   || 0, 150000);
   const cap80D   = Math.min(Number(deductions80D)   || 0, 75000);
-  const cap24b   = Math.min(Number(deductions24b)   || 0, 200000);  // already in HP calc if HP enabled
+  const cap24b   = houseProperty?.enabled ? 0 : Math.min(Number(deductions24b) || 0, 200000);
   const cap80E   = Math.max(0, Number(deductions80E)   || 0);
-  const cap80TTA = Math.min(Number(deductions80TTA) || 0, 10000);
-  const cap80G   = Math.max(0, Number(deductions80G)   || 0);
-  const totalDeductionsOld = cap80C + cap80D + cap24b + cap80E + cap80TTA + cap80G;
+  // 80TTA: savings interest deduction — max ₹10K, only old regime, not for senior citizens (use 80TTB)
+  const cap80TTA = ageGroup === '>80' ? 0 : Math.min(Number(deductions80TTA) || 0, 10000);
+  const cap80TTB = ageGroup === '>80' ? Math.min(Number(deductions80TTA) || 0, 50000) : 0; // senior citizens
+  const cap80G   = Math.max(0, Number(deductions80G) || 0);
+  const totalDeductionsOld = cap80C + cap80D + cap24b + cap80E + cap80TTA + cap80TTB + cap80G;
 
   // ── Taxable income ─────────────────────────────────────────────────────────
   const oldTaxable = Math.max(0, grossTotal - totalDeductionsOld);
-  const newTaxable = Math.max(0, grossTotal); // new regime: no Chapter VI-A deductions
+  const newTaxable = Math.max(0, grossTotal);
 
-  // ── Slab tax ───────────────────────────────────────────────────────────────
+  // ── Slab tax ──────────────────────────────────────────────────────────────
   const oldSlabTax = calcSlabTax(oldTaxable, 'old', ageGroup);
   const newSlabTax = calcSlabTax(newTaxable, 'new', ageGroup);
 
-  // ── CG tax at special rates ────────────────────────────────────────────────
+  // ── CG tax at special rates ───────────────────────────────────────────────
   const cgTax = calcCGTax(capitalGains);
 
-  // ── Rebate 87A ─────────────────────────────────────────────────────────────
+  // ── Rebate 87A ────────────────────────────────────────────────────────────
   const oldRebate = calcRebate87A(oldTaxable, oldSlabTax, 'old');
   const newRebate = calcRebate87A(newTaxable, newSlabTax, 'new');
 
   const oldAfterRebate = Math.max(0, oldSlabTax - oldRebate) + cgTax;
   const newAfterRebate = Math.max(0, newSlabTax - newRebate) + cgTax;
 
-  // ── Surcharge ──────────────────────────────────────────────────────────────
+  // ── Surcharge ─────────────────────────────────────────────────────────────
   const oldSurcharge = calcSurcharge(oldTaxable, oldAfterRebate, 'old');
   const newSurcharge = calcSurcharge(newTaxable, newAfterRebate, 'new');
 
-  // ── Health & Education Cess 4% ─────────────────────────────────────────────
+  // ── Total tax with 4% cess ────────────────────────────────────────────────
   const oldTax = Math.round((oldAfterRebate + oldSurcharge) * 1.04);
   const newTax = Math.round((newAfterRebate + newSurcharge) * 1.04);
 
-  // ── Regime recommendation ──────────────────────────────────────────────────
+  // ── Regime recommendation ─────────────────────────────────────────────────
   const betterRegime = oldTax <= newTax ? 'old' : 'new';
   const chosenTax    = betterRegime === 'old' ? oldTax : newTax;
   const savings      = Math.abs(oldTax - newTax);
 
-  // ── Tax paid ───────────────────────────────────────────────────────────────
+  // ── Taxes paid ────────────────────────────────────────────────────────────
   const totalPaid  = (Number(tdsDeducted) || 0) + (Number(advanceTax) || 0) + (Number(selfAssessment) || 0);
   const balanceDue = Math.max(0, chosenTax - totalPaid);
   const refund     = Math.max(0, totalPaid - chosenTax);
 
-  // ── Advance tax schedule (if balance > ₹10,000) ───────────────────────────
+  // ── Interest u/s 234B (simplified estimate) ───────────────────────────────
+  // 1% per month if balance due and less than 90% of tax paid as advance
+  const advanceTaxRequired = chosenTax > 10000;
+  const paidAsTDS   = Number(tdsDeducted)  || 0;
+  const paidAsAdv   = Number(advanceTax)   || 0;
+  const est234B     = advanceTaxRequired && (paidAsAdv + paidAsTDS) < chosenTax * 0.9
+    ? Math.round((chosenTax - paidAsTDS) * 0.01 * 4) // ~4 months estimate
+    : 0;
+
+  // ── Advance tax schedule ──────────────────────────────────────────────────
   let advanceTaxSchedule = [];
   if (balanceDue > 10000) {
     advanceTaxSchedule = [
-      { due: '15 Jun', pct: 15,  amount: Math.round(balanceDue * 0.15) },
-      { due: '15 Sep', pct: 45,  amount: Math.round(balanceDue * 0.45) },
-      { due: '15 Dec', pct: 75,  amount: Math.round(balanceDue * 0.75) },
-      { due: '15 Mar', pct: 100, amount: Math.round(balanceDue) },
+      { due: '15 Jun', pct: 15,  amount: Math.round(chosenTax * 0.15) },
+      { due: '15 Sep', pct: 45,  amount: Math.round(chosenTax * 0.45) },
+      { due: '15 Dec', pct: 75,  amount: Math.round(chosenTax * 0.75) },
+      { due: '15 Mar', pct: 100, amount: chosenTax },
     ];
   }
 
   return {
-    // Inputs (echoed back for recompute)
+    // Inputs echoed back
     grossSalary, businessIncome, interestIncome, dividendIncome,
     otherIncome: osIncome, hpIncome, cgSlabIncome, cgTax,
-    standardDeduction, professionalTax,
-    ageGroup,
-
-    // Computation
-    salaryAfterStdDed,
-    grossTotal,
-
-    // Old regime breakdown
-    cap80C, cap80D, cap24b, cap80E, cap80TTA, cap80G,
-    totalDeductionsOld,
-    oldTaxable,
-    oldSlabTax,
-    oldRebate,
-    oldSurcharge,
-    oldTax,
-
-    // New regime breakdown
-    newTaxable,
-    newSlabTax,
-    newRebate,
-    newSurcharge,
-    newTax,
-
-    // Capital gains
-    cgTax,
-
+    standardDeduction: actualStdDed, professionalTax, ageGroup,
+    // Gross total
+    salaryAfterStdDed, grossTotal,
+    // Old regime
+    cap80C, cap80D, cap24b, cap80E, cap80TTA, cap80TTB, cap80G, totalDeductionsOld,
+    oldTaxable, oldSlabTax, oldRebate, oldSurcharge, oldTax,
+    // New regime
+    newTaxable, newSlabTax, newRebate, newSurcharge, newTax,
     // Outcome
-    betterRegime,
-    chosenTax,
-    savings,
+    betterRegime, chosenTax, savings,
     tdsDeducted: Number(tdsDeducted) || 0,
     advanceTax:  Number(advanceTax)  || 0,
     selfAssessment: Number(selfAssessment) || 0,
-    totalPaid,
-    balanceDue,
-    refund,
+    totalPaid, balanceDue, refund,
+    est234B,         // estimated 234B interest
     advanceTaxSchedule,
   };
 }

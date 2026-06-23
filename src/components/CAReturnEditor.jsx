@@ -5,6 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Loader, CheckCircle, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { computeTax, formatINR } from '../data/flow.js';
+import CGCollector from './CGCollector.jsx';
 import { caUpdateReturn } from '../lib/supabase.js';
 import { Button } from './UI.jsx';
 
@@ -85,6 +86,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
   const [stcg111a,   setStcg111a]   = useState(comp.capitalGains?.shares?.stcg111a || 0);
   const [ltcg112a,   setLtcg112a]   = useState(comp.capitalGains?.shares?.ltcg112a || 0);
   const [ltcgProp,   setLtcgProp]   = useState(comp.capitalGains?.property?.ltcg   || 0);
+  const [capGains,   setCapGains]   = useState(comp.capitalGains || null); // full CG with sale/purchase
 
   // ── Deductions ────────────────────────────────────────────────
   const [d80C,   setD80C]   = useState(comp.deductions80C   || 0);
