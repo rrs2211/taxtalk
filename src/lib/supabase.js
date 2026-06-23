@@ -259,3 +259,35 @@ export async function logAudit(returnId, userId, action, detail = {}) {
     .from('audit_log')
     .insert({ return_id: returnId, user_id: userId, action, detail });
 }
+
+// ─── Client: get all returns (history) ───────────────────────
+
+export async function getMyReturns(userId) {
+  const { data, error } = await supabase
+    .from('returns')
+    .select('id, assessment_year, status, itr_form, profile, computation, created_at, updated_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+// ─── CA queries for a client ─────────────────────────────────
+
+export async function getMyCAQueries(userId) {
+  const { data, error } = await supabase
+    .from('ca_queries')
+    .select('*, returns (id, assessment_year, profile, itr_form), from_profile:from_user_id (full_name, email)')
+    .eq('to_user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function replyToCAQuery(queryId, replyText) {
+  const { error } = await supabase
+    .from('ca_queries')
+    .update({ client_reply: replyText, replied_at: new Date().toISOString() })
+    .eq('id', queryId);
+  if (error) throw error;
+}

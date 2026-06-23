@@ -89,18 +89,22 @@ export function useReturn(userId) {
     return doc;
   }, [returnRecord, userId]);
 
-  // Save final computation
+  // Save final computation — also determines and saves the correct ITR form
   const saveComputation = useCallback(async (comp) => {
     setComputation(comp);
     if (!returnRecord?.id) return;
+    // Determine ITR form from computation data (import inline to avoid circular deps)
+    const { determineITRForm } = await import('../lib/itrJson.js');
+    const itrForm = determineITRForm(returnRecord.profile, comp);
     await updateReturn(returnRecord.id, {
-      computation: comp,
+      computation:   comp,
       old_regime_tax: comp.oldTax,
       new_regime_tax: comp.newTax,
-      chosen_regime: comp.betterRegime,
-      refund_amount: comp.refund || 0,
-      balance_due: comp.balanceDue || 0,
-      itr_form: comp.itrForm || 'ITR-1',
+      chosen_regime:  comp.betterRegime,
+      refund_amount:  comp.refund     || 0,
+      balance_due:    comp.balanceDue || 0,
+      itr_form:       itrForm,
+      profile:        returnRecord.profile || comp.profile,
     });
   }, [returnRecord]);
 

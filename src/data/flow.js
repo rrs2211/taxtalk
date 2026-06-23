@@ -132,35 +132,46 @@ export function calcHousePropertyIncome(hp) {
 
 export function computeTax(data) {
   const {
-    grossSalary    = 0,
-    otherIncome    = 0,          // Schedule OS — interest, dividends, etc.
-    deductions80C  = 0,
-    deductions80D  = 0,
-    deductions24b  = 0,          // Home loan interest (Sec 24b)
-    deductions80E  = 0,          // Education loan interest
-    deductions80TTA = 0,         // Savings interest (max ₹10K)
-    deductions80G  = 0,          // Donations
-    tdsDeducted    = 0,
-    advanceTax     = 0,
-    selfAssessment = 0,
-    ageGroup       = '<60',
-    houseProperty  = null,       // { enabled, type, rentReceived, municipalTaxes, interestPaid }
-    capitalGains   = null,       // { enabled, shares: {stcg111a, ltcg112a}, property: {ltcg, stcg} }
-    professionalTax = 0,         // Sec 16(iii)
-    standardDeduction = 75000,   // Sec 16(ia)
+    grossSalary      = 0,
+    businessIncome   = 0,          // Presumptive / actual business / partner profit
+    interestIncome   = 0,          // Schedule OS — savings, FD interest
+    dividendIncome   = 0,          // Schedule OS — dividends
+    otherIncome      = 0,          // Schedule OS — other (legacy field, still supported)
+    deductions80C    = 0,
+    deductions80D    = 0,
+    deductions24b    = 0,          // Home loan interest (Sec 24b) — only if HP not enabled
+    deductions80E    = 0,          // Education loan interest
+    deductions80TTA  = 0,          // Savings interest (max ₹10K)
+    deductions80G    = 0,          // Donations
+    tdsDeducted      = 0,
+    advanceTax       = 0,
+    selfAssessment   = 0,
+    ageGroup         = '<60',
+    houseProperty    = null,
+    capitalGains     = null,
+    professionalTax  = 0,
+    standardDeduction = 75000,
   } = data;
 
   // ── Income heads ───────────────────────────────────────────────────────────
-  const hpIncome         = calcHousePropertyIncome(houseProperty);
-  // CG that goes into slab (STCG on property + other CG)
-  const cgSlabIncome     = Math.max(0,
+  const hpIncome     = calcHousePropertyIncome(houseProperty);
+  const cgSlabIncome = Math.max(0,
     (Number(capitalGains?.property?.stcg) || 0) +
     (Number(capitalGains?.other)          || 0)
   );
+  const osIncome = Math.max(0,
+    (Number(interestIncome) || 0) +
+    (Number(dividendIncome) || 0) +
+    (Number(otherIncome)    || 0)   // legacy support
+  );
 
-  // ── Gross total income ─────────────────────────────────────────────────────
+  // ── Gross total income (all five heads) ────────────────────────────────────
   const salaryAfterStdDed = Math.max(0, grossSalary - standardDeduction - professionalTax);
-  const grossTotal = salaryAfterStdDed + Math.max(0, Number(otherIncome) || 0) + hpIncome + cgSlabIncome;
+  const grossTotal = salaryAfterStdDed
+    + Math.max(0, Number(businessIncome) || 0)   // ← was missing
+    + osIncome
+    + hpIncome
+    + cgSlabIncome;
 
   // ── Deductions (Chapter VI-A) — old regime only ───────────────────────────
   const cap80C   = Math.min(Number(deductions80C)   || 0, 150000);
@@ -220,7 +231,8 @@ export function computeTax(data) {
 
   return {
     // Inputs (echoed back for recompute)
-    grossSalary, otherIncome, hpIncome, cgSlabIncome, cgTax,
+    grossSalary, businessIncome, interestIncome, dividendIncome,
+    otherIncome: osIncome, hpIncome, cgSlabIncome, cgTax,
     standardDeduction, professionalTax,
     ageGroup,
 
