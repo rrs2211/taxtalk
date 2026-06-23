@@ -3,7 +3,7 @@ import { setCORSHeaders, handleOptions, getAuthUser, getSupabaseAdmin } from './
 
 const RATE_LIMIT = new Map();
 function checkRate(ip) {
-  const now = Date.now(); const window = 3600000; const max = 10;
+  const now = Date.now(); const window = 3600000; const max = 20;
   const e = RATE_LIMIT.get(ip);
   if (!e || now - e.t > window) { RATE_LIMIT.set(ip, { n:1, t:now }); return true; }
   if (e.n >= max) return false;
@@ -12,18 +12,173 @@ function checkRate(ip) {
 
 const SYSTEM = `You are a specialized Indian income tax document extraction engine for AY 2026-27.
 Extract data from uploaded documents and return ONLY valid JSON — no preamble, no markdown fences.
-Be precise. If a field is not found or unclear, set it to null. Never invent values.
-Use rupees as integers (no commas).`;
+Be precise with all monetary values (integers, no commas, no decimals).
+If a field is not present or unclear, use null. Never invent or interpolate values.`;
 
 const PROMPTS = {
-  form16: `Extract all fields from this Form 16 (Part A and Part B) and return JSON:
-{"employer_name":string|null,"employer_pan":string|null,"employee_pan":string|null,"employee_name":string|null,"assessment_year":string|null,"gross_salary":number|null,"standard_deduction":number|null,"net_salary":number|null,"deduction_80c":number|null,"deduction_80ccc":number|null,"deduction_80ccd1":number|null,"deduction_80ccd1b":number|null,"deduction_80ccd2":number|null,"deduction_80d":number|null,"deduction_80e":number|null,"deduction_80g":number|null,"total_chapter_via":number|null,"taxable_income":number|null,"tax_payable":number|null,"rebate_87a":number|null,"health_education_cess":number|null,"total_tds_deducted":number|null,"confidence":number}`,
-  ais: `Extract all entries from this AIS or Form 26AS and return JSON:
-{"pan":string|null,"assessment_year":string|null,"salary_income":[{"deductor":string,"tds":number,"amount":number}],"interest_income":[{"source":string,"amount":number,"tds":number}],"dividend_income":[{"company":string,"amount":number,"tds":number}],"capital_gains":[{"asset_type":string,"sale_value":number,"purchase_value":number,"gain":number,"type":"STCG"|"LTCG"}],"high_value_transactions":[{"type":string,"amount":number,"date":string|null}],"tds_summary":[{"deductor":string,"tan":string|null,"amount_paid":number,"tds":number}],"advance_tax_paid":[{"challan":string|null,"amount":number,"date":string|null}],"confidence":number}`,
-  balance_sheet: `Extract all figures from this Balance Sheet (31 March 2026) and return JSON:
-{"entity_name":string|null,"pan":string|null,"capital_account":number|null,"partners_capital":[{"name":string,"amount":number}],"secured_loans":number|null,"unsecured_loans":number|null,"current_liabilities":number|null,"total_liabilities":number|null,"fixed_assets_gross":number|null,"accumulated_depreciation":number|null,"fixed_assets_net":number|null,"investments":number|null,"closing_stock":number|null,"sundry_debtors":number|null,"cash_and_bank":number|null,"loans_and_advances":number|null,"total_assets":number|null,"confidence":number}`,
-  pl_statement: `Extract all figures from this Profit & Loss Account (FY 2025-26) and return JSON:
-{"entity_name":string|null,"gross_turnover":number|null,"gross_receipts":number|null,"opening_stock":number|null,"purchases":number|null,"direct_expenses":number|null,"closing_stock":number|null,"gross_profit":number|null,"salaries_wages":number|null,"rent":number|null,"electricity":number|null,"depreciation_books":number|null,"interest_on_loans":number|null,"bad_debts":number|null,"other_expenses":number|null,"total_expenses":number|null,"net_profit_before_tax":number|null,"confidence":number}`,
+
+  // ── AIS / Form 26AS — extracted first, drives the entire flow ────────────────
+  ais: `Extract ALL data from this AIS (Annual Information Statement) or Form 26AS for AY 2026-27.
+This is the primary identity and income source document. Extract everything you can see.
+Return this exact JSON structure (all arrays may be empty, never null):
+{
+  "pan": string|null,
+  "name": string|null,
+  "dob": string|null,
+  "address": string|null,
+  "mobile": string|null,
+  "email": string|null,
+  "assessment_year": string|null,
+
+  "salary_income": [
+    {"deductor_name": string, "deductor_tan": string|null, "amount": number, "tds": number}
+  ],
+
+  "interest_income": [
+    {"source_name": string, "source_type": "savings_bank"|"fd"|"other", "amount": number, "tds": number}
+  ],
+
+  "dividend_income": [
+    {"company_name": string, "amount": number, "tds": number}
+  ],
+
+  "capital_gains": [
+    {"description": string, "asset_type": "equity_shares"|"equity_mf"|"property"|"other",
+     "sale_value": number, "purchase_value": number, "gain": number,
+     "holding_period": "short"|"long", "section": "111A"|"112A"|"112"|"other"}
+  ],
+
+  "rent_income": [
+    {"tenant_name": string, "amount": number, "tds": number}
+  ],
+
+  "business_receipts": [
+    {"deductor_name": string, "section": string, "amount": number, "tds": number}
+  ],
+
+  "advance_tax": [
+    {"challan_no": string|null, "bsr_code": string|null, "date": string|null, "amount": number}
+  ],
+
+  "self_assessment_tax": [
+    {"challan_no": string|null, "bsr_code": string|null, "date": string|null, "amount": number}
+  ],
+
+  "tds_summary": [
+    {"deductor_name": string, "tan": string|null, "section": string|null,
+     "gross_amount": number, "tds_deducted": number, "head": "salary"|"business"|"interest"|"rent"|"other"}
+  ],
+
+  "high_value_transactions": [
+    {"type": string, "amount": number, "party": string|null, "date": string|null}
+  ],
+
+  "total_tds": number|null,
+  "total_advance_tax": number|null,
+  "confidence": number
+}`,
+
+  // ── Form 16 — detailed salary certificate ────────────────────────────────────
+  form16: `Extract all data from this Form 16 (Part A and Part B) issued by employer.
+Return this exact JSON:
+{
+  "employer_name": string|null,
+  "employer_pan": string|null,
+  "employer_tan": string|null,
+  "employee_pan": string|null,
+  "employee_name": string|null,
+  "assessment_year": string|null,
+  "period_from": string|null,
+  "period_to": string|null,
+  "gross_salary": number|null,
+  "allowances_exempt_10": number|null,
+  "hra_exempt": number|null,
+  "standard_deduction": number|null,
+  "professional_tax": number|null,
+  "net_salary_taxable": number|null,
+  "deduction_80c": number|null,
+  "deduction_80ccc": number|null,
+  "deduction_80ccd1": number|null,
+  "deduction_80ccd1b": number|null,
+  "deduction_80ccd2": number|null,
+  "deduction_80d": number|null,
+  "deduction_80e": number|null,
+  "deduction_80g": number|null,
+  "deduction_80tta": number|null,
+  "total_chapter_via": number|null,
+  "taxable_income": number|null,
+  "tax_on_income": number|null,
+  "rebate_87a": number|null,
+  "surcharge": number|null,
+  "health_education_cess": number|null,
+  "total_tax_payable": number|null,
+  "total_tds_deducted": number|null,
+  "confidence": number
+}`,
+
+  // ── Balance Sheet ─────────────────────────────────────────────────────────────
+  balance_sheet: `Extract all figures from this Balance Sheet as at 31 March 2026.
+Return this exact JSON:
+{
+  "entity_name": string|null,
+  "pan": string|null,
+  "as_at_date": string|null,
+  "capital_account": number|null,
+  "reserves_surplus": number|null,
+  "partners_capital": [{"name": string, "amount": number}],
+  "secured_loans": number|null,
+  "unsecured_loans": number|null,
+  "trade_payables": number|null,
+  "other_current_liabilities": number|null,
+  "total_liabilities": number|null,
+  "fixed_assets_gross": number|null,
+  "accumulated_depreciation": number|null,
+  "fixed_assets_net": number|null,
+  "capital_wip": number|null,
+  "investments": number|null,
+  "closing_stock": number|null,
+  "trade_receivables": number|null,
+  "cash_and_bank": number|null,
+  "loans_and_advances": number|null,
+  "other_current_assets": number|null,
+  "total_assets": number|null,
+  "confidence": number
+}`,
+
+  // ── P&L Statement ─────────────────────────────────────────────────────────────
+  pl_statement: `Extract all figures from this Profit & Loss Account / Income & Expenditure statement for FY 2025-26.
+Pay special attention to expenses that may be disallowed under the Income Tax Act.
+Return this exact JSON:
+{
+  "entity_name": string|null,
+  "pan": string|null,
+  "period": string|null,
+  "gross_turnover": number|null,
+  "gross_receipts": number|null,
+  "other_income": number|null,
+  "opening_stock": number|null,
+  "purchases": number|null,
+  "direct_expenses": number|null,
+  "closing_stock": number|null,
+  "gross_profit": number|null,
+  "salaries_wages": number|null,
+  "rent": number|null,
+  "electricity_power": number|null,
+  "repairs_maintenance": number|null,
+  "depreciation_books": number|null,
+  "interest_on_loans": number|null,
+  "bad_debts_written_off": number|null,
+  "donations_charity": number|null,
+  "cash_expenses_above_10k": number|null,
+  "personal_expenses_in_books": number|null,
+  "other_expenses": number|null,
+  "total_expenses": number|null,
+  "net_profit_before_tax": number|null,
+  "possible_disallowances": [
+    {"section": string, "description": string, "estimated_amount": number}
+  ],
+  "confidence": number
+}`
 };
 
 export default async function handler(req, res) {
@@ -51,40 +206,43 @@ export default async function handler(req, res) {
   if (!isOwner && !isCA) return res.status(403).json({ message: 'Access denied' });
 
   const prompt = PROMPTS[doc.doc_type];
-  if (!prompt) return res.status(400).json({ message: `No extraction support for: ${doc.doc_type}` });
+  if (!prompt) return res.status(400).json({ message: `No extraction prompt for doc type: ${doc.doc_type}` });
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.status(500).json({ message: 'ANTHROPIC_API_KEY not configured in Vercel environment variables' });
+  if (!apiKey) return res.status(500).json({ message: 'ANTHROPIC_API_KEY not configured' });
 
   try {
     await supabase.from('documents').update({ extraction_status: 'processing' }).eq('id', documentId);
 
-    // Fetch file from R2 server-side
     const signedUrl = await getPresignedUrl(doc.storage_path, 120);
     const fileRes   = await fetch(signedUrl);
-    if (!fileRes.ok) throw new Error(`Could not fetch document from storage: ${fileRes.status}`);
+    if (!fileRes.ok) throw new Error(`Storage fetch failed: ${fileRes.status}`);
 
     const buffer  = await fileRes.arrayBuffer();
     const base64  = Buffer.from(buffer).toString('base64');
-    const mime    = doc.original_name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg';
+    const ext     = (doc.original_name || '').toLowerCase();
+    const mime    = ext.endsWith('.pdf') ? 'application/pdf'
+                  : ext.endsWith('.png') ? 'image/png'
+                  : 'image/jpeg';
 
     const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'Content-Type':    'application/json',
+        'x-api-key':       apiKey,
         'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'prompt-caching-2024-07-31',
+        'anthropic-beta':  'prompt-caching-2024-07-31',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2048,
+        model:      'claude-sonnet-4-6',
+        max_tokens: 4096,
         system: [{ type:'text', text:SYSTEM, cache_control:{ type:'ephemeral' } }],
         messages: [{
           role: 'user',
           content: [
-            { type:'document', source:{ type:'base64', media_type:mime, data:base64 } },
-            { type:'text', text:prompt },
+            { type: mime === 'application/pdf' ? 'document' : 'image',
+              source: { type:'base64', media_type:mime, data:base64 } },
+            { type:'text', text: prompt },
           ],
         }],
       }),
@@ -92,9 +250,9 @@ export default async function handler(req, res) {
 
     if (!aiRes.ok) {
       const err = await aiRes.json().catch(() => ({}));
-      console.error('Anthropic error:', aiRes.status, err);
+      console.error('Claude API error:', aiRes.status, err);
       await supabase.from('documents').update({ extraction_status:'failed' }).eq('id', documentId);
-      return res.status(502).json({ message: 'AI extraction failed. Please try again or enter details manually.' });
+      return res.status(502).json({ message: 'AI extraction failed. Try again or enter details manually.' });
     }
 
     const aiData    = await aiRes.json();
@@ -105,9 +263,9 @@ export default async function handler(req, res) {
     const extracted = JSON.parse(clean);
 
     await supabase.from('documents').update({
-      extracted_json: extracted,
+      extracted_json:    extracted,
       extraction_status: 'success',
-      confidence: extracted.confidence ?? null,
+      confidence:        extracted.confidence ?? null,
     }).eq('id', documentId);
 
     await supabase.from('audit_log').insert({
@@ -116,8 +274,7 @@ export default async function handler(req, res) {
       detail: { documentId, confidence: extracted.confidence, tokens: aiData.usage },
     }).then(() => {}).catch(() => {});
 
-    console.log('Extracted:', doc.doc_type, 'confidence:', extracted.confidence);
-    return res.status(200).json({ extracted, documentId });
+    return res.status(200).json({ extracted, documentId, docType: doc.doc_type });
 
   } catch (err) {
     console.error('extract error:', err.message);

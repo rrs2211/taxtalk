@@ -133,10 +133,11 @@ export function calcHousePropertyIncome(hp) {
 export function computeTax(data) {
   const {
     grossSalary      = 0,
-    businessIncome   = 0,          // Presumptive / actual business / partner profit
-    interestIncome   = 0,          // Schedule OS — savings, FD interest
+    businessIncome   = 0,          // Presumptive / actual business / partner profit (after disallowances)
+    disallowances    = 0,          // Sec 40A(3) cash pmts, personal exp — added back to business income
+    interestIncome   = 0,          // Schedule OS — savings + FD interest combined
     dividendIncome   = 0,          // Schedule OS — dividends
-    otherIncome      = 0,          // Schedule OS — other (legacy field, still supported)
+    otherIncome      = 0,          // Schedule OS — gifts, misc (always taxable, no 80TTA benefit)
     deductions80C    = 0,
     deductions80D    = 0,
     deductions24b    = 0,          // Home loan interest (Sec 24b) — only if HP not enabled
