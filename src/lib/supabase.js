@@ -291,3 +291,73 @@ export async function replyToCAQuery(queryId, replyText) {
     .eq('id', queryId);
   if (error) throw error;
 }
+
+// ─── KYC / Profile ────────────────────────────────────────────
+
+export async function getKYCStatus(userId) {
+  const { data } = await supabase.from('profiles').select('full_name,pan,dob,phone,aadhaar,city,state_code,pin_code,locality,email,kyc_complete').eq('id', userId).single();
+  return data;
+}
+
+export async function saveKYC(userId, kyc) {
+  const { data, error } = await supabase.from('profiles').update({ ...kyc, kyc_complete: true }).eq('id', userId).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function changePassword(newPassword) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+}
+
+// ─── CA: all app users ───────────────────────────────────────
+
+export async function getAllUsers() {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, pan, city, role, kyc_complete, created_at, updated_at')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+// ─── Delete return ────────────────────────────────────────────
+
+export async function deleteReturn(returnId, userId) {
+  // Delete cascades to conversations, documents, flags, ca_queue, ca_queries via FK
+  const { error } = await supabase.from('returns').delete().eq('id', returnId).eq('user_id', userId);
+  if (error) throw error;
+}
+
+export async function deleteReturnAsCA(returnId) {
+  const { error } = await supabase.from('returns').delete().eq('id', returnId);
+  if (error) throw error;
+}
+
+// ─── CA: queries from all clients (for CA message center) ────
+
+export async function getAllCAQueries() {
+  const { data, error } = await supabase
+    .from('ca_queries')
+    .select('*, returns(id, assessment_year, profile, itr_form, status), client:to_user_id(full_name, email, pan, city), sender:from_user_id(full_name, email)')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function sendCAReply(queryId, fromUserId, toUserId, returnId, message) {
+  const { error } = await supabase.from('ca_queries').insert({ return_id: returnId, from_user_id: fromUserId, to_user_id: toUserId, message });
+  if (error) throw error;
+}
+
+// ─── Documents for a return (for CA review) ──────────────────
+
+export async function getReturnDocuments(returnId) {
+  const { data, error } = await supabase
+    .from('documents')
+    .select('id, doc_type, original_name, extraction_status, confidence, created_at, extracted_json')
+    .eq('return_id', returnId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}

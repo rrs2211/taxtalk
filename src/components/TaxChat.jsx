@@ -517,34 +517,58 @@ export default function TaxChat({ userId }) {
     setAisFlags(flags);
   }
 
+  // Additional income types not in AIS
+  const [extraIncomeTypes, setExtraIncomeTypes] = useState([]);
+  const EXTRA_INCOME_TYPES = [
+    { id:'salary_other',  label:'Salary from another employer' },
+    { id:'business',      label:'Business / professional income' },
+    { id:'hp',            label:'House property (rental)' },
+    { id:'cg',            label:'Capital gains (shares / property)' },
+    { id:'interest_add',  label:'More interest / dividend income' },
+    { id:'none',          label:'Nothing else' },
+  ];
+  function toggleExtra(id) {
+    if (id==='none') { setExtraIncomeTypes(['none']); return; }
+    setExtraIncomeTypes(p => { const w=p.filter(x=>x!=='none'); return w.includes(id)?w.filter(x=>x!==id):[...w,id]; });
+  }
+  function confirmExtraIncome() {
+    const has = extraIncomeTypes;
+    if (has.includes('none') || has.length===0) { addUser('Nothing else'); routeToNextStep(); return; }
+    const labels = EXTRA_INCOME_TYPES.filter(t=>has.includes(t.id)&&t.id!=='none').map(t=>t.label).join(', ');
+    addUser(labels);
+    if (has.includes('business') && taxProfile!=='business') { setTaxProfile('mixed'); setStep(S.BIZ_TYPE); addAI(<p>What type of business income do you have?</p>, null); }
+    else if (has.includes('hp')) { setStep(S.HP_TYPE); addAI(<p>Is your property <strong>self-occupied</strong> or <strong>rented out</strong>?</p>, null); }
+    else { routeToNextStep(); }
+  }
+  function routeToNextStep() {
+    if (taxProfile==='salaried'||taxProfile==='mixed') {
+      setStep(S.FORM16);
+      addAI(<><p style={{ marginBottom:8 }}>Please upload your <strong>Form 16</strong> from your employer.</p><p style={{ fontSize:12, color:'var(--text-muted)' }}>PDF or clear photo works.</p></>, null);
+    } else if (taxProfile==='business') {
+      setStep(S.BIZ_TYPE);
+      addAI(<p>What type of business income do you have?</p>, null);
+    } else { proceedToDeductions(); }
+  }
+
   function confirmAIS() {
     addUser('Yes, looks correct');
-    // Determine profile from AIS
     const hasSalary = (aisData?.salary_income||[]).reduce((s,x)=>s+(x.amount||0),0) > 0;
     const hasBiz    = (aisData?.business_receipts||[]).reduce((s,x)=>s+(x.amount||0),0) > 0;
-
-    if (hasSalary && !hasBiz) {
-      setTaxProfile('salaried');
-      setStep(S.FORM16);
-      addAI(
-        <>
-          <p style={{ marginBottom:8 }}>AIS shows salary income. Now please upload your <strong>Form 16</strong> — your employer's TDS certificate. This gives us the full salary breakdown and deductions your employer claimed.</p>
-          <p style={{ fontSize:12, color:'var(--text-muted)' }}>PDF or clear photo works.</p>
-        </>, null
-      );
-    } else if (hasBiz && !hasSalary) {
-      setTaxProfile('business');
-      setStep(S.BIZ_TYPE);
-      addAI(<p>AIS shows business receipts. What type of business income do you have?</p>, null);
-    } else if (hasBiz && hasSalary) {
-      setTaxProfile('mixed');
-      setStep(S.FORM16);
-      addAI(<p style={{ marginBottom:8 }}>AIS shows both salary and business income. Let us get your <strong>Form 16</strong> first for the salary part.</p>, null);
-    } else {
-      // Only investment / OS income
-      setTaxProfile('investor');
-      proceedToDeductions();
-    }
+    if (hasSalary && !hasBiz)      setTaxProfile('salaried');
+    else if (hasBiz && !hasSalary) setTaxProfile('business');
+    else if (hasBiz && hasSalary)  setTaxProfile('mixed');
+    else                           setTaxProfile('investor');
+    // Always ask for additional income not in AIS
+    setStep(S.INCOME_CONFIRM);
+    addAI(
+      <>
+        <p style={{ marginBottom:8 }}>
+          {hasSalary&&hasBiz?'AIS shows salary and business income.':hasSalary?'AIS shows salary income.':hasBiz?'AIS shows business receipts.':'AIS shows investment income.'}
+          {' '}Do you have <strong>any other income</strong> not reflected in the AIS above?
+        </p>
+        <p style={{ fontSize:12, color:'var(--text-muted)' }}>Select all that apply — or choose "Nothing else" to continue:</p>
+      </>, null
+    );
   }
 
   // ── Form 16 Upload ──────────────────────────────────────────────────────────
@@ -978,6 +1002,20 @@ export default function TaxChat({ userId }) {
                 setTimeout(confirmAIS, 1200);
               }}>Some details differ</Button>
               <Button variant="primary" style={{ flex:1, justifyContent:'center' }} onClick={confirmAIS}>Looks correct ✓</Button>
+            </div>
+          )}
+
+          {/* Additional income not in AIS */}
+          {step === S.INCOME_CONFIRM && (
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                {EXTRA_INCOME_TYPES.map(t => (
+                  <Chip key={t.id} label={t.label} selected={extraIncomeTypes.includes(t.id)} onClick={() => toggleExtra(t.id)}/>
+                ))}
+              </div>
+              <Button variant="primary" onClick={confirmExtraIncome} disabled={extraIncomeTypes.length===0} style={{ alignSelf:"flex-end" }}>
+                Continue <ChevronRight size={15}/>
+              </Button>
             </div>
           )}
 
