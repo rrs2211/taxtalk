@@ -369,6 +369,7 @@ export default function TaxChat({ userId }) {
 
   // Amount input
   const [showInput, setShowInput]   = useState(false);
+  const [isTextInput, setIsTextInput] = useState(false);  // true = text, false = number
   const [inputValue, setInputVal]   = useState('');
   const [inputCtx, setInputCtx]     = useState('');
 
@@ -405,8 +406,8 @@ export default function TaxChat({ userId }) {
     setMessages(m => [...m, { from:'user', content:text, key:Date.now() }]);
     persistMessage('user', text).catch(() => {});
   }
-  function ask(jsxContent, ctx) {
-    addAI(jsxContent, () => { setInputVal(''); setInputCtx(ctx); setShowInput(true); });
+  function ask(jsxContent, ctx, textMode=false) {
+    addAI(jsxContent, () => { setInputVal(''); setInputCtx(ctx); setIsTextInput(textMode); setShowInput(true); });
   }
 
   // ── AIS Upload & Parse ──────────────────────────────────────────────────────
@@ -637,7 +638,17 @@ export default function TaxChat({ userId }) {
     { id:'44ADA',  label:'Presumptive — Professional (Sec 44ADA)',sub:'Receipts ≤ ₹75L · 50% of receipts · No books needed' },
     { id:'actual', label:'Actual profit — books of accounts',    sub:'Upload P&L and Balance Sheet · CA handles disallowances' },
   ];
-  const [selBizType, setSelBizType] = useState('44AD');
+  const [selBizType,  setSelBizType]  = useState('44AD');
+  const [bizTurnover, setBizTurnover] = useState(0);       // raw turnover
+  const [bizCashPct,  setBizCashPct]  = useState(0);       // % cash turnover (for 44AD 8% calc)
+  const [bizName,     setBizNameState]= useState('');       // for ScheduleBP NatOfBus
+  const [bizCodeAD,   setBizCodeAD]   = useState('09028'); // default: retail sale of other products
+  // Balance sheet items (required for FinanclPartclrOfBusiness)
+  const [bsCapital,   setBsCapital]   = useState(0);
+  const [bsBank,      setBsBank]      = useState(0);
+  const [bsDebtors,   setBsDebtors]   = useState(0);
+  const [bsCreditors, setBsCreditors] = useState(0);
+  const [bsCash,      setBsCash]      = useState(0);
 
   function handleBizConfirm() {
     addUser(BIZ_TYPES.find(b=>b.id===selBizType)?.label || selBizType);
@@ -666,6 +677,17 @@ export default function TaxChat({ userId }) {
         setStep(S.BIZ_PRESUMPTIVE);
       }
     }
+  }
+
+  // ── Business details: name, code, balance sheet items ──────────────────────
+  function askBizDetails() {
+    // Ask business/profession name for ScheduleBP NatOfBus
+    ask(
+      <>
+        <p>What is the <strong>name of your business / profession</strong>?</p>
+        <p style={{ fontSize:12, color:'var(--text-muted)', marginTop:4 }}>E.g. "CA Practice", "Trading", "Consulting", "Medical Clinic"</p>
+      </>, 'biz_name', true
+    );
   }
 
   // ── P&L / B/S upload (assisted) ────────────────────────────────────────────
@@ -743,6 +765,16 @@ export default function TaxChat({ userId }) {
       setUploading(false); setProcessing(null);
       addAI(<p>Could not read Balance Sheet. Please try again.</p>, null);
     }
+  }
+
+  function proceedToBalanceSheet() {
+    ask(
+      <>
+        <p>A few quick balance sheet items are required for the ITR-4 filing.</p>
+        <p style={{ marginTop:4, fontSize:13 }}>What was your <strong>own capital / net worth</strong> in the business as on 31 March 2026?</p>
+        <p style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>This is opening capital + profits - drawings. Enter your best estimate.</p>
+      </>, 'bs_capital'
+    );
   }
 
   // ── Deductions ──────────────────────────────────────────────────────────────
@@ -841,24 +873,74 @@ export default function TaxChat({ userId }) {
 
   // ── Amount handler ──────────────────────────────────────────────────────────
   function handleAmount() {
-    const val = parseInt(inputValue.replace(/[^0-9]/g,'')) || 0;
-    setShowInput(false); setInputVal('');
-    addUser(`₹${val.toLocaleString('en-IN')}`);
+    // Text input vs number input
+    const isText = isTextInput;
+    const val  = isText ? inputValue.trim() : (parseInt(inputValue.replace(/[^0-9]/g,'')) || 0);
+    setShowInput(false); setInputVal(''); setIsTextInput(false);
+    addUser(isText ? String(val) : `₹${Number(val).toLocaleString('en-IN')}`);
     const ctx = inputCtx;
 
-    if (ctx === 'biz_turnover') {
-      const rate = selBizType==='44ADA' ? 0.5 : 0.06;
-      const presumptive = Math.round(val * rate);
+    if (ctx === 'biz_name') {
+      setBizNameState(String(val));
+      proceedToBalanceSheet();
+      return;
+    }
+
+    if (ctx === 'biz_turnover' || ctx === 'biz_turnover_confirm') {
+      const bizReceipts = (aisData?.business_receipts||[]).reduce((s,x)=>s+(x.amount||0),0);
+      const turnover = ctx === 'biz_turnover_confirm' ? (val || bizReceipts) : val;
+      setBizTurnover(turnover);
+      if (selBizType === '44ADA') {
+        // 44ADA: always 50%
+        const presumptive = Math.round(turnover * 0.5);
+        setBiz(presumptive);
+        addAI(
+          <><p>Presumptive income: <strong>{formatINR(presumptive)}</strong> (50% of {formatINR(turnover)})</p></>,
+          () => askBizDetails()
+        );
+      } else {
+        // 44AD: ask digital vs cash split (6% digital, 8% cash)
+        ask(
+          <>
+            <p>What percentage of your turnover was received via <strong>bank / digital</strong> means? The rest is treated as cash.</p>
+            <p style={{ fontSize:12, color:'var(--text-muted)', marginTop:4 }}>Digital receipts: 6% · Cash receipts: 8% · Enter 0-100 (e.g. enter 80 if 80% was digital)</p>
+          </>, 'biz_digital_pct'
+        );
+      }
+    } else if (ctx === 'biz_digital_pct') {
+      const pct = Math.min(100, Math.max(0, val));
+      setBizCashPct(100 - pct);
+      const digitalT = Math.round(bizTurnover * pct / 100);
+      const cashT    = bizTurnover - digitalT;
+      const presumptive = Math.round(digitalT * 0.06) + Math.round(cashT * 0.08);
       setBiz(presumptive);
       addAI(
-        <><p>Presumptive income: <strong>{formatINR(presumptive)}</strong> ({selBizType==='44ADA'?'50%':'6%'} of {formatINR(val)})</p></>,
-        () => proceedToDeductions()
+        <>
+          <p style={{ marginBottom:6 }}>Presumptive income computed: <strong>{formatINR(presumptive)}</strong></p>
+          <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:8, padding:'8px 12px', fontSize:13 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', padding:'3px 0' }}><span style={{ color:'var(--text-secondary)' }}>Digital ({pct}%): {formatINR(digitalT)} × 6%</span><span style={{ fontWeight:500 }}>{formatINR(Math.round(digitalT*0.06))}</span></div>
+            <div style={{ display:'flex', justifyContent:'space-between', padding:'3px 0' }}><span style={{ color:'var(--text-secondary)' }}>Cash ({100-pct}%): {formatINR(cashT)} × 8%</span><span style={{ fontWeight:500 }}>{formatINR(Math.round(cashT*0.08))}</span></div>
+          </div>
+        </>,
+        () => askBizDetails()
       );
-    } else if (ctx === 'biz_turnover_confirm') {
-      const bizReceipts = (aisData?.business_receipts||[]).reduce((s,x)=>s+(x.amount||0),0);
-      const turnover = val || bizReceipts;
-      const rate = selBizType==='44ADA' ? 0.5 : 0.06;
-      setBiz(Math.round(turnover * rate));
+    } else if (ctx === 'biz_name_done') {
+      // This is triggered via button, not amount input
+      proceedToBalanceSheet();
+    } else if (ctx === 'bs_capital') {
+      setBsCapital(val);
+      ask(<p>What was the <strong>balance in all bank accounts</strong> as on 31 March 2026?</p>, 'bs_bank');
+    } else if (ctx === 'bs_bank') {
+      setBsBank(val);
+      ask(<p>What was the <strong>cash in hand</strong> as on 31 March 2026? (enter 0 if you operate fully digitally)</p>, 'bs_cash');
+    } else if (ctx === 'bs_cash') {
+      setBsCash(val);
+      ask(<p>What was the total <strong>outstanding debtors</strong> (money clients owe you) as on 31 March 2026? (enter 0 if none)</p>, 'bs_debtors');
+    } else if (ctx === 'bs_debtors') {
+      setBsDebtors(val);
+      ask(<p>What was the total <strong>outstanding creditors</strong> (money you owe suppliers) as on 31 March 2026? (enter 0 if none)</p>, 'bs_creditors');
+    } else if (ctx === 'bs_creditors') {
+      setBsCreditors(val);
       proceedToDeductions();
     } else if (ctx === 'd80c') {
       setD80C(val); proceedToOtherDed();
@@ -893,6 +975,11 @@ export default function TaxChat({ userId }) {
     const inputs = {
       grossSalary, standardDeduction:75000, professionalTax:0,
       businessIncome,
+      bizTurnover, bizCashPct,        // for ScheduleBP 6%/8% split
+      bizName,                        // for NatOfBus44AD
+      bizCodeAD,                      // nature of business code
+      // Balance sheet items for FinanclPartclrOfBusiness
+      bsCapital, bsBank, bsCash, bsDebtors, bsCreditors,
       interestIncome: totalInterest,
       dividendIncome,
       otherIncome: otherOSIncome,
@@ -947,7 +1034,9 @@ export default function TaxChat({ userId }) {
     setInt(0); setDiv(0); setSavInt(0); setFdInt(0); setOtherOS(0);
     setAdvTax(0); setSelfAss(0); setHP(null); setCG(null);
     setD80C(0); setD80D(0); setSel80C([]); setSelOther([]); setAisFlags([]);
-    setShowInput(false); setInputVal(''); setUploadErr(null);
+    setBizTurnover(0); setBizCashPct(0); setBizNameState(''); setBizCodeAD('09028');
+    setBsCapital(0); setBsBank(0); setBsCash(0); setBsDebtors(0); setBsCreditors(0);
+    setShowInput(false); setInputVal(''); setIsTextInput(false); setUploadErr(null);
     setTimeout(() => addAI(<p>Ready to file another return?</p>, null), 400);
   }
 
@@ -1110,14 +1199,20 @@ export default function TaxChat({ userId }) {
             </div>
           )}
 
-          {/* Amount input */}
+          {/* Amount / text input */}
           {showInput && (
             <div style={{ display:'flex', gap:8 }}>
               <div style={{ flex:1, border:'1.5px solid var(--border-strong)', borderRadius:'var(--radius-md)', padding:'0 14px', display:'flex', alignItems:'center', gap:8, background:'var(--surface)' }}>
-                <span style={{ fontWeight:600, color:'var(--text-muted)' }}>₹</span>
-                <input type="number" placeholder="Enter amount" value={inputValue} onChange={e => setInputVal(e.target.value)}
-                  onKeyDown={e => e.key==='Enter' && inputValue && handleAmount()} autoFocus
-                  style={{ flex:1, fontSize:15, padding:'12px 0', background:'transparent', color:'var(--text-primary)', border:'none', outline:'none' }}/>
+                {!isTextInput && <span style={{ fontWeight:600, color:'var(--text-muted)' }}>₹</span>}
+                <input
+                  type={isTextInput ? 'text' : 'number'}
+                  placeholder={isTextInput ? 'Enter name / text' : 'Enter amount'}
+                  value={inputValue}
+                  onChange={e => setInputVal(e.target.value)}
+                  onKeyDown={e => e.key==='Enter' && inputValue && handleAmount()}
+                  autoFocus
+                  style={{ flex:1, fontSize:15, padding:'12px 0', background:'transparent', color:'var(--text-primary)', border:'none', outline:'none' }}
+                />
               </div>
               <Button variant="primary" onClick={handleAmount} disabled={!inputValue}><Send size={15}/></Button>
             </div>

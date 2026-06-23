@@ -526,8 +526,10 @@ function buildITR4(returnData, d, c) {
   const net     = Math.max(0, gross - stdDed - pTax);
   const is44AD  = returnData?.profile === 'business';
   const is44ADA = returnData?.profile === 'freelancer';
-  const turn    = I(d.bizTurnover || 0);
-  const bankT   = Math.round(turn * 0.5);
+  // Turnover from client inputs (stored on computation object and clientDetails)
+  const turn    = I(d.bizTurnover || c.bizTurnover || 0);
+  const cashPct = Number(d.bizCashPct !== undefined ? d.bizCashPct : (c.bizCashPct !== undefined ? c.bizCashPct : 50)) / 100;
+  const bankT   = Math.round(turn * (1 - cashPct));   // digital portion (6% rate)
 
   return {
     ITR: { ITR4: {
@@ -590,21 +592,31 @@ function buildITR4(returnData, d, c) {
         TotTaxPlusIntrstPay:  tax,
       },
       ScheduleBP: {
-        NatOfBus44AD:     is44AD  ? [{ NameOfBusiness: d.bizName||'Business',   CodeAD:'01',  Description:'' }] : [],
+        // NatOfBus44AD MUST have at least one entry or utility ignores all business income
+        NatOfBus44AD: is44AD ? [{
+          NameOfBusiness: d.bizName || c.bizName || 'Business',
+          CodeAD: d.bizCodeAD || c.bizCodeAD || '09028',  // 09028 = retail sale of other products
+          Description: '',
+        }] : [],
         PersumptiveInc44AD: {
-          GrsTotalTrnOver:           is44AD  ? turn : 0,
-          GrsTrnOverBank:            is44AD  ? bankT : 0,
-          GrsTotalTrnOverInCash:     is44AD  ? turn - bankT : 0,
-          GrsTrnOverAnyOthMode:      0,
-          PersumptiveInc44AD6Per:    is44AD  ? Math.round(bankT * 0.06) : 0,
-          PersumptiveInc44AD8Per:    is44AD  ? Math.round((turn-bankT) * 0.08) : 0,
-          TotPersumptiveInc44AD:     is44AD  ? biz : 0,
+          GrsTotalTrnOver:          is44AD ? turn : 0,
+          GrsTrnOverBank:           is44AD ? bankT : 0,        // digital/bank receipts
+          GrsTotalTrnOverInCash:    is44AD ? (turn - bankT) : 0, // cash receipts
+          GrsTrnOverAnyOthMode:     0,
+          PersumptiveInc44AD6Per:   is44AD ? Math.round(bankT * 0.06) : 0,
+          PersumptiveInc44AD8Per:   is44AD ? Math.round((turn - bankT) * 0.08) : 0,
+          TotPersumptiveInc44AD:    is44AD ? biz : 0,
         },
-        NatOfBus44ADA:    is44ADA ? [{ NameOfBusiness: d.bizName||'Profession', CodeADA:'01', Description:'' }] : [],
+        // NatOfBus44ADA MUST have at least one entry for professional filers
+        NatOfBus44ADA: is44ADA ? [{
+          NameOfBusiness: d.bizName || c.bizName || 'Profession',
+          CodeADA: d.bizCodeADA || c.bizCodeADA || '16019',  // 16019 = other professional services
+          Description: '',
+        }] : [],
         PersumptiveInc44ADA: {
           GrsReceipt:                is44ADA ? turn : 0,
           GrsTrnOverBank44ADA:       is44ADA ? bankT : 0,
-          GrsTotalTrnOverInCash44ADA:is44ADA ? turn-bankT : 0,
+          GrsTotalTrnOverInCash44ADA:is44ADA ? (turn - bankT) : 0,
           GrsTrnOverAnyOthMode44ADA: 0,
           TotPersumptiveInc44ADA:    is44ADA ? biz : 0,
         },
@@ -613,11 +625,23 @@ function buildITR4(returnData, d, c) {
         TurnoverGrsRcptForGSTIN: d.gstin ? [{ GSTIN: d.gstin, TurnoverGrsRcpt: turn }] : [],
         TotalTurnoverGrsRcptGSTIN: turn,
         FinanclPartclrOfBusiness: {
-          PartnerMemberOwnCapital:0, SecuredLoans:0, UnSecuredLoans:0, Advances:0,
-          SundryCreditors:0, OthrCurrLiab:0, TotCapLiabilities:0,
-          FixedAssets:0, Investments:0, Inventories:0,
-          SundryDebtors:0, BalWithBanks:0, CashInHand:0,
-          LoansAndAdvances:0, OtherAssets:0, TotalAssets:0,
+          // Required fields — collect during chat, defaults to 0
+          PartnerMemberOwnCapital: I(d.bsCapital || c.bsCapital || 0),
+          SecuredLoans:    0,
+          UnSecuredLoans:  0,
+          Advances:        0,
+          SundryCreditors: I(d.bsCreditors || c.bsCreditors || 0),
+          OthrCurrLiab:    0,
+          TotCapLiabilities: I(d.bsCapital || c.bsCapital || 0) + I(d.bsCreditors || c.bsCreditors || 0),
+          FixedAssets:     0,
+          Investments:     0,
+          Inventories:     0,
+          SundryDebtors:   I(d.bsDebtors || c.bsDebtors || 0),
+          BalWithBanks:    I(d.bsBank || c.bsBank || 0),
+          CashInHand:      I(d.bsCash || c.bsCash || 0),
+          LoansAndAdvances:0,
+          OtherAssets:     0,
+          TotalAssets:     I(d.bsCapital || c.bsCapital || 0) + I(d.bsCreditors || c.bsCreditors || 0),
         },
       },
       TaxPaid:  { TaxesPaid: taxesPaid(c), BalTaxPayable: I(c.balanceDue) },

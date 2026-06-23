@@ -473,8 +473,8 @@ function MessageCenter({ caUserId }) {
       // Group by return_id + to_user_id
       const map = {};
       data.forEach(q => {
-        const key = `${q.return_id}_${q.to_user_id||q.from_user_id}`;
-        if (!map[key]) map[key] = { key, client: q.client, ret: q.returns, messages:[] };
+        const key = q.return_id || `no_return_${q.to_user_id}`;
+        if (!map[key]) map[key] = { key, client: q.client || q.sender, ret: q.returns, messages:[], returnId: q.return_id };
         map[key].messages.push(q);
       });
       setThreads(Object.values(map));
@@ -510,7 +510,7 @@ function MessageCenter({ caUserId }) {
         {threads.length===0
           ? <div style={{ textAlign:'center', padding:20, color:'var(--text-muted)', fontSize:13 }}>No messages yet</div>
           : threads.map(t => {
-            const unread = t.messages.filter(m => !m.client_reply && m.from_user_id===caUserId).length;
+            const unread = t.messages.filter(m => m.from_user_id===caUserId && !m.client_reply).length;
             const last   = t.messages[t.messages.length-1];
             return (
               <div key={t.key} onClick={() => setSelected(t)} style={{ padding:'10px 12px', borderBottom:'1px solid var(--border)', cursor:'pointer', background:selected?.key===t.key?'var(--brand-light)':'transparent' }}>
@@ -540,13 +540,25 @@ function MessageCenter({ caUserId }) {
               {selThread.messages.map(m => {
                 const isCA = m.from_user_id===caUserId;
                 return (
-                  <div key={m.id} style={{ display:'flex', justifyContent:isCA?'flex-end':'flex-start' }}>
-                    <div style={{ maxWidth:'75%', background:isCA?'var(--brand)':'var(--surface-3)', color:isCA?'#fff':'var(--text-primary)', borderRadius:isCA?'12px 12px 2px 12px':'12px 12px 12px 2px', padding:'8px 12px', fontSize:13, lineHeight:1.5 }}>
-                      <div>{m.message}</div>
-                      {m.client_reply && <div style={{ marginTop:6, paddingTop:6, borderTop:'1px solid rgba(255,255,255,0.3)', fontSize:12, opacity:0.9 }}>↩ {m.client_reply}</div>}
-                      <div style={{ fontSize:10, opacity:0.7, marginTop:3 }}>{new Date(m.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>
+                  <React.Fragment key={m.id}>
+                    {/* CA message */}
+                    <div style={{ display:'flex', justifyContent:isCA?'flex-end':'flex-start' }}>
+                      <div style={{ maxWidth:'75%', background:isCA?'var(--brand)':'var(--surface-3)', color:isCA?'#fff':'var(--text-primary)', borderRadius:isCA?'12px 12px 2px 12px':'12px 12px 12px 2px', padding:'8px 12px', fontSize:13, lineHeight:1.5 }}>
+                        <div>{m.message}</div>
+                        <div style={{ fontSize:10, opacity:0.7, marginTop:3 }}>{new Date(m.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>
+                      </div>
                     </div>
-                  </div>
+                    {/* Client reply shown as separate bubble */}
+                    {m.client_reply && (
+                      <div style={{ display:'flex', justifyContent:'flex-start' }}>
+                        <div style={{ maxWidth:'75%', background:'var(--surface-3)', color:'var(--text-primary)', borderRadius:'12px 12px 12px 2px', padding:'8px 12px', fontSize:13, lineHeight:1.5, border:'1px solid var(--border)' }}>
+                          <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3 }}>Client replied</div>
+                          <div>{m.client_reply}</div>
+                          <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:3 }}>{m.replied_at ? new Date(m.replied_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : ''}</div>
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </div>
