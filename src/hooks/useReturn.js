@@ -108,27 +108,45 @@ export function useReturn(userId) {
     });
   }, [returnRecord]);
 
-  // Submit to CA queue
-  const submitToCA = useCallback(async (aiNote, flags = []) => {
+  // Submit to CA queue — saves computation BEFORE changing status
+  const submitToCA = useCallback(async (aiNote, flags = [], finalComp = null) => {
     if (!returnRecord?.id || !userId) throw new Error('No active return');
 
+    // Save computation while status is still 'in_progress' (RLS allows it)
+    if (finalComp) {
+      const { determineITRForm } = await import('../lib/itrJson.js');
+      const itrForm = determineITRForm(returnRecord.profile, finalComp);
+      await updateReturn(returnRecord.id, {
+        computation:    finalComp,
+        old_regime_tax: finalComp.oldTax,
+        new_regime_tax: finalComp.newTax,
+        chosen_regime:  finalComp.betterRegime,
+        refund_amount:  finalComp.refund     || 0,
+        balance_due:    finalComp.balanceDue || 0,
+        itr_form:       itrForm,
+        profile:        returnRecord.profile || finalComp.profile,
+      });
+    }
+
+    // Change status to submitted
     await submitReturn(returnRecord.id);
 
     // Insert flags
     if (flags.length > 0) {
-      await insertFlags(returnRecord.id, flags);
+      await insertFlags(returnRecord.id, flags).catch(e => console.warn('flags insert:', e.message));
     }
 
     // Insert CA queue entry
     const { supabase: sb } = await import('../lib/supabase.js');
-    await sb.from('ca_queue').insert({
-      return_id: returnRecord.id,
-      user_id: userId,
-      priority: flags.some(f => f.severity === 'critical') ? 1 : flags.length > 0 ? 3 : 5,
-      flags_count: flags.length,
+    const { error: qErr } = await sb.from('ca_queue').insert({
+      return_id:      returnRecord.id,
+      user_id:        userId,
+      priority:       flags.some(f => f.severity === 'critical') ? 1 : flags.length > 0 ? 3 : 5,
+      flags_count:    flags.length,
       critical_flags: flags.filter(f => f.severity === 'critical').length,
-      ai_note: aiNote,
+      ai_note:        aiNote,
     });
+    if (qErr) throw new Error(qErr.message);
 
     await logAudit(returnRecord.id, userId, 'submitted_to_ca', { flags: flags.length });
     setReturnRecord(prev => ({ ...prev, status: 'submitted' }));

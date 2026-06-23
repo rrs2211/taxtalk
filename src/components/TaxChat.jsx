@@ -925,9 +925,9 @@ export default function TaxChat({ userId }) {
   async function handleSubmit(finalComp) {
     setSubmitting(true);
     try {
-      await saveComputation(finalComp);
       const note = `${taxProfile} | ${ageGroup} | Income: ${formatINR(finalComp.grossTotal)} | Tax: ${formatINR(finalComp.chosenTax)} | ${finalComp.betterRegime} regime | ${finalComp.refund>0?'Refund: '+formatINR(finalComp.refund):'Balance: '+formatINR(finalComp.balanceDue)}`;
-      await submitToCA(note, aisFlags.map(f => ({ severity:'warn', ...f })));
+      // Pass finalComp to submitToCA — saves before status change to avoid RLS violation
+      await submitToCA(note, aisFlags.map(f => ({ severity:'warn', ...f })), finalComp);
       setStep(S.DONE);
       addUser('Confirmed and sent to CA');
       addAI(
