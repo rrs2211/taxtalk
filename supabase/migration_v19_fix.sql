@@ -126,3 +126,32 @@ SELECT
 FROM pg_policies
 WHERE tablename IN ('returns', 'flags', 'ca_queries', 'profiles')
 ORDER BY tablename, policyname;
+
+-- ── 10. Bidirectional messaging — add reply_to_id to ca_queries ──────────────
+-- This allows proper threading: CA message → client replies as new row
+ALTER TABLE public.ca_queries ADD COLUMN IF NOT EXISTS reply_to_id uuid REFERENCES public.ca_queries(id);
+ALTER TABLE public.ca_queries ADD COLUMN IF NOT EXISTS is_read boolean DEFAULT false;
+
+-- Allow CA staff to select all ca_queries (including client replies)
+DROP POLICY IF EXISTS "CA staff see all queries" ON public.ca_queries;
+CREATE POLICY "CA staff see all queries"
+  ON public.ca_queries FOR SELECT
+  USING (public.is_ca_staff());
+
+-- Allow clients to see all queries in their return (both CA messages and own replies)
+DROP POLICY IF EXISTS "Clients see queries addressed to them" ON public.ca_queries;
+CREATE POLICY "Clients see queries addressed to them"
+  ON public.ca_queries FOR SELECT
+  USING (
+    auth.uid() = to_user_id
+    OR auth.uid() = from_user_id
+    OR EXISTS (SELECT 1 FROM public.returns r WHERE r.id = return_id AND r.user_id = auth.uid())
+  );
+
+-- Mark messages as read
+DROP POLICY IF EXISTS "Users mark own messages read" ON public.ca_queries;
+CREATE POLICY "Users mark own messages read"
+  ON public.ca_queries FOR UPDATE
+  USING (auth.uid() = to_user_id OR public.is_ca_staff());
+
+SELECT 'Messaging model updated' AS result;

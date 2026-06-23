@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CheckCircle, AlertTriangle, AlertCircle, MessageSquare, Clock, ChevronDown, ChevronUp, Send, FileText, TrendingUp, Loader, RefreshCw, Download, ExternalLink, Users, Trash2, X, Upload, Eye } from 'lucide-react';
 import { Avatar, Badge, Button, Card, Divider } from './UI.jsx';
 import { formatINR } from '../data/flow.js';
-import { supabase, approveReturn, sendCAQuery, getAllUsers, getAllCAQueries, getReturnDocuments, deleteReturnAsCA } from '../lib/supabase.js';
+import { supabase, approveReturn, sendCAQuery, getAllUsers, getAllCAQueries, getReturnDocuments, deleteReturnAsCA, sendMessage, getReturnMessages } from '../lib/supabase.js';
+import CAReturnEditor from './CAReturnEditor.jsx';
 import { determineITRForm, generateITRJson, downloadITRJson } from '../lib/itrJson.js';
 import { uploadDocument, validateFile } from '../lib/storage.js';
 
@@ -263,6 +264,8 @@ function ClientCard({ entry, caUserId, onRefresh }) {
   const [itrJson,    setItrJson]    = useState(null);
   const [showFiling, setShowFiling] = useState(false);
   const [showDocs,   setShowDocs]   = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
+  const [editedComp, setEditedComp] = useState(null);
   const [kycData,    setKycData]    = useState(null);
   const [deleting,   setDeleting]   = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -371,6 +374,25 @@ function ClientCard({ entry, caUserId, onRefresh }) {
             </button>
             {showDocs && <DocumentsPanel returnId={ret.id} caUserId={caUserId}/>}
 
+            {/* Return editor */}
+            {showEditor && (
+              <div style={{ marginTop:12, padding:16, background:'var(--surface-2)', borderRadius:'var(--radius-md)', border:'1px solid var(--border)' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+                  <div style={{ fontWeight:600, fontSize:15 }}>Edit return data</div>
+                  <button onClick={()=>setShowEditor(false)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)' }}><X size={16}/></button>
+                </div>
+                <CAReturnEditor
+                  ret={{ ...ret, computation: editedComp || comp }}
+                  kycData={kycData}
+                  onSave={(updatedComp) => { setEditedComp(updatedComp); setShowEditor(false); onRefresh(); }}
+                  onClose={() => setShowEditor(false)}
+                />
+              </div>
+            )}
+
+            {/* Message thread with client */}
+            <CAMessageThread returnId={ret.id} caUserId={caUserId} clientId={entry.user_id} clientName={profile?.full_name?.split(' ')[0]||'Client'} />
+
             {/* Filing steps */}
             {showFiling&&itrJson&&<FilingSteps ret={ret} profile={profile} itrJson={itrJson} itrForm={itrForm} onMarkFiled={handleMarkFiled}/>}
 
@@ -392,6 +414,7 @@ function ClientCard({ entry, caUserId, onRefresh }) {
             {/* Actions */}
             <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:10 }}>
               {status!=='filed'&&status==='submitted'&&critCount===0&&<Button variant="success" onClick={handleApprove} disabled={saving}><CheckCircle size={15}/> Approve</Button>}
+              <Button variant="secondary" onClick={()=>setShowEditor(e=>!e)}>✏️ {showEditor?'Close editor':'Edit return'}</Button>
               {status!=='filed'&&critCount===0&&(status==='approved'||status==='submitted')&&(
                 <Button variant="primary" onClick={()=>{ if(!showFiling)setShowModal(true); else setShowFiling(false); }}>
                   <Download size={15}/> {showFiling?'Hide filing':'Prepare & file ITR'}
@@ -412,6 +435,80 @@ function ClientCard({ entry, caUserId, onRefresh }) {
     </>
   );
 }
+
+// ── CA Message Thread (inline in ClientCard) ───────────────────────────────────
+function CAMessageThread({ returnId, caUserId, clientId, clientName }) {
+  const [messages,  setMessages]  = useState([]);
+  const [reply,     setReply]     = useState('');
+  const [sending,   setSending]   = useState(false);
+  const [expanded,  setExpanded]  = useState(false);
+  const [unread,    setUnread]    = useState(0);
+  const bottomRef = useRef(null);
+
+  async function load() {
+    const { data } = await supabase.from('ca_queries').select('*, from_profile:from_user_id(id, full_name)').eq('return_id', returnId).order('created_at', { ascending: true });
+    setMessages(data || []);
+    const u = (data||[]).filter(m => m.to_user_id===caUserId && !m.is_read).length;
+    setUnread(u);
+    if (u > 0) await supabase.from('ca_queries').update({ is_read:true }).eq('return_id', returnId).eq('to_user_id', caUserId).catch(()=>{});
+  }
+
+  useEffect(() => {
+    load();
+    const ch = supabase.channel(`ca_thread_${returnId}`).on('postgres_changes', { event:'INSERT', schema:'public', table:'ca_queries', filter:`return_id=eq.${returnId}` }, load).subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [returnId]);
+
+  useEffect(() => { if (expanded) bottomRef.current?.scrollIntoView({ behavior:'smooth' }); }, [messages, expanded]);
+
+  async function handleSend() {
+    if (!reply.trim()) return;
+    setSending(true);
+    try {
+      await supabase.from('ca_queries').insert({ return_id:returnId, from_user_id:caUserId, to_user_id:clientId, message:reply.trim() });
+      setReply(''); load();
+    } finally { setSending(false); }
+  }
+
+  return (
+    <div style={{ border:'1px solid var(--border)', borderRadius:'var(--radius-md)', overflow:'hidden', marginTop:8 }}>
+      <button onClick={()=>setExpanded(e=>!e)} style={{ width:'100%', padding:'9px 14px', background:'var(--surface-3)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:13, fontWeight:500, color:'var(--text-secondary)' }}>
+        <span>💬 Messages with {clientName}</span>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          {unread > 0 && <span style={{ background:'var(--danger)', color:'#fff', borderRadius:20, padding:'1px 7px', fontSize:11, fontWeight:700 }}>{unread} new</span>}
+          <span>{expanded ? '▲' : '▼'}</span>
+        </div>
+      </button>
+      {expanded && (
+        <div style={{ padding:'12px' }}>
+          <div style={{ maxHeight:220, overflowY:'auto', display:'flex', flexDirection:'column', gap:7, marginBottom:10 }}>
+            {messages.length===0 && <div style={{ textAlign:'center', fontSize:12, color:'var(--text-muted)', padding:12 }}>No messages yet</div>}
+            {messages.map(m => {
+              const isCA = m.from_user_id===caUserId;
+              return (
+                <div key={m.id} style={{ display:'flex', justifyContent:isCA?'flex-end':'flex-start' }}>
+                  <div style={{ maxWidth:'80%', background:isCA?'var(--brand)':'var(--surface-2)', color:isCA?'#fff':'var(--text-primary)', borderRadius:isCA?'12px 12px 2px 12px':'12px 12px 12px 2px', padding:'7px 11px', fontSize:13, border:isCA?'none':'1px solid var(--border)' }}>
+                    {!isCA && <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:2 }}>{clientName}</div>}
+                    <div>{m.message}</div>
+                    <div style={{ fontSize:10, opacity:0.65, marginTop:2 }}>{new Date(m.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div>
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={bottomRef}/>
+          </div>
+          <div style={{ display:'flex', gap:6 }}>
+            <input value={reply} onChange={e=>setReply(e.target.value)} onKeyDown={e=>e.key==='Enter'&&reply.trim()&&handleSend()} placeholder={`Message ${clientName}...`} style={{ flex:1, padding:'7px 10px', border:'1px solid var(--border-strong)', borderRadius:8, fontSize:13, outline:'none' }}/>
+            <button onClick={handleSend} disabled={sending||!reply.trim()} style={{ padding:'7px 12px', background:'var(--brand)', color:'#fff', border:'none', borderRadius:8, cursor:'pointer', display:'flex', alignItems:'center', gap:4, fontSize:13 }}>
+              {sending?<Loader size={12} style={{ animation:'spin 1s linear infinite' }}/>:<Send size={12}/>}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // ── Users panel ───────────────────────────────────────────────────────────────
 function UsersPanel() {

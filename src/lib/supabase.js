@@ -275,20 +275,21 @@ export async function getMyReturns(userId) {
 // ─── CA queries for a client ─────────────────────────────────
 
 export async function getMyCAQueries(userId) {
+  // Get all messages in returns belonging to this user
   const { data, error } = await supabase
     .from('ca_queries')
-    .select('*, returns (id, assessment_year, profile, itr_form), from_profile:from_user_id (full_name, email)')
-    .eq('to_user_id', userId)
-    .order('created_at', { ascending: false });
+    .select('*, returns(id, assessment_year, profile, itr_form), from_profile:from_user_id(id, full_name, email)')
+    .or(`to_user_id.eq.${userId},from_user_id.eq.${userId}`)
+    .order('created_at', { ascending: true });
   if (error) throw error;
   return data || [];
 }
 
-export async function replyToCAQuery(queryId, replyText) {
+export async function replyToCAQuery(queryId, replyText, fromUserId, toUserId, returnId) {
+  // New model: create a new row instead of updating client_reply field
   const { error } = await supabase
     .from('ca_queries')
-    .update({ client_reply: replyText, replied_at: new Date().toISOString() })
-    .eq('id', queryId);
+    .insert({ return_id: returnId, from_user_id: fromUserId, to_user_id: toUserId, message: replyText, reply_to_id: queryId });
   if (error) throw error;
 }
 
@@ -337,12 +338,59 @@ export async function deleteReturnAsCA(returnId) {
 // ─── CA: queries from all clients (for CA message center) ────
 
 export async function getAllCAQueries() {
+  // Fetch all messages — both CA-sent and client-replies (new rows)
   const { data, error } = await supabase
     .from('ca_queries')
-    .select('*, returns(id, assessment_year, profile, itr_form, status), client:to_user_id(full_name, email, pan, city), sender:from_user_id(full_name, email)')
-    .order('created_at', { ascending: false });
+    .select(`
+      *,
+      returns(id, assessment_year, profile, itr_form, status),
+      to_profile:to_user_id(id, full_name, email, pan, city),
+      from_profile:from_user_id(id, full_name, email)
+    `)
+    .order('created_at', { ascending: true });
   if (error) throw error;
   return data || [];
+}
+
+export async function getReturnMessages(returnId) {
+  const { data, error } = await supabase
+    .from('ca_queries')
+    .select('*, from_profile:from_user_id(id, full_name, email, role)')
+    .eq('return_id', returnId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function sendMessage(returnId, fromUserId, toUserId, message, replyToId = null) {
+  const { data, error } = await supabase
+    .from('ca_queries')
+    .insert({ return_id: returnId, from_user_id: fromUserId, to_user_id: toUserId, message, reply_to_id: replyToId })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function markMessagesRead(returnId, userId) {
+  await supabase
+    .from('ca_queries')
+    .update({ is_read: true })
+    .eq('return_id', returnId)
+    .eq('to_user_id', userId)
+    .eq('is_read', false);
+}
+
+// CA: edit return computation
+export async function caUpdateReturn(returnId, updates) {
+  const { data, error } = await supabase
+    .from('returns')
+    .update(updates)
+    .eq('id', returnId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 export async function sendCAReply(queryId, fromUserId, toUserId, returnId, message) {
