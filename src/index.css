@@ -99,9 +99,11 @@ textarea {
 .app-shell {
   display:        flex;
   flex-direction: column;
-  height:         100vh;
+  height:         100dvh;
   height:         -webkit-fill-available;
   overflow:       hidden;
+  /* bottom-nav is fixed, so page-full needs bottom padding */
+  padding-bottom: calc(var(--tab-height) + var(--safe-bottom));
 }
 
 /* ── Top nav bar ───────────────────────────────────────────────────────────── */
@@ -117,13 +119,19 @@ textarea {
   align-items:   center;
   position:      sticky;
   top:           0;
-  z-index:       100;
+  z-index:       150;
   box-shadow:    var(--shadow-sm);
 }
 
 /* ── Bottom tab bar (mobile) ───────────────────────────────────────────────── */
 .bottom-nav {
-  flex-shrink:    0;
+  /* Truly fixed — always visible, never moves with keyboard or scroll */
+  position:       fixed;
+  bottom:         0;
+  left:           0;
+  right:          0;
+  /* Must be above everything including modals */
+  z-index:        500;
   height:         calc(var(--tab-height) + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   padding-left:   var(--safe-left);
@@ -132,10 +140,10 @@ textarea {
   border-top:     1px solid var(--border);
   display:        flex;
   align-items:    center;
-  box-shadow:     0 -1px 8px rgba(0,0,0,0.06);
-  position:       sticky;
-  bottom:         0;
-  z-index:        100;
+  box-shadow:     0 -2px 16px rgba(0,0,0,0.10);
+  /* Prevent touch-through on iOS */
+  -webkit-transform: translateZ(0);
+  transform:      translateZ(0);
 }
 
 .bottom-nav-item {
@@ -167,13 +175,17 @@ textarea {
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+  /* Ensure content never hides behind fixed bottom nav */
+  padding-bottom: 8px;
 }
 
 .page-full {
-  flex:       1;
-  display:    flex;
+  flex:           1;
+  display:        flex;
   flex-direction: column;
-  overflow:   hidden;
+  overflow:       hidden;
+  /* Accommodate fixed bottom nav */
+  min-height:     0;
 }
 
 /* ── Cards ─────────────────────────────────────────────────────────────────── */

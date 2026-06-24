@@ -679,10 +679,13 @@ function MessageCenter({ caUserId }) {
 
 // ── Main CA Dashboard ─────────────────────────────────────────────────────────
 export default function CADashboard({ caUserId }) {
-  const [tab,     setTab]     = useState('queue');
-  const [queue,   setQueue]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
+  const [tab,          setTab]       = useState('queue');
+  const [queue,        setQueue]     = useState([]);
+  const [loading,      setLoading]   = useState(true);
+  const [error,        setError]     = useState(null);
+  // Filters
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterSearch, setFilterSearch] = useState('');
 
   async function loadQueue() {
     setLoading(true); setError(null);
@@ -736,17 +739,59 @@ export default function CADashboard({ caUserId }) {
 
       <div style={{ display:'flex', borderBottom:'1px solid var(--border)', marginBottom:16, overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
         {TABS.map(t => (
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:'10px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:13, fontWeight:tab===t.id?600:400, color:tab===t.id?'var(--brand)':'var(--text-secondary)', borderBottom:`2px solid ${tab===t.id?'var(--brand)':'transparent'}` }}>
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:'10px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:13, fontWeight:tab===t.id?600:400, color:tab===t.id?'var(--brand)':'var(--text-secondary)', borderBottom:`2px solid ${tab===t.id?'var(--brand)':'transparent'}`, whiteSpace:'nowrap' }}>
             {t.label}
           </button>
         ))}
       </div>
 
+      {/* Filters — only show on queue tab */}
+      {tab === 'queue' && (
+        <div style={{ marginBottom:14, display:'flex', flexDirection:'column', gap:10 }}>
+          {/* Search */}
+          <input value={filterSearch} onChange={e => setFilterSearch(e.target.value)}
+            placeholder="Search by name, PAN, email..."
+            style={{ width:'100%', padding:'9px 12px', border:'1.5px solid var(--border-strong)', borderRadius:'var(--radius-md)', fontSize:14, outline:'none', background:'var(--surface)', color:'var(--text-primary)', boxSizing:'border-box' }}/>
+          {/* Status filter chips */}
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+            {[
+              { id:'all',       label:`All (${queue.length})` },
+              { id:'submitted', label:`Pending review (${queue.filter(e=>e.returns?.status==='submitted').length})` },
+              { id:'queried',   label:`Awaiting client (${queue.filter(e=>e.returns?.status==='queried').length})` },
+              { id:'approved',  label:`Approved (${queue.filter(e=>e.returns?.status==='approved').length})` },
+              { id:'filed',     label:`Filed (${queue.filter(e=>e.returns?.status==='filed').length})` },
+            ].map(f => (
+              <button key={f.id} onClick={() => setFilterStatus(f.id)}
+                style={{ padding:'5px 12px', borderRadius:20, border:`1.5px solid ${filterStatus===f.id?'var(--brand)':'var(--border-strong)'}`, background:filterStatus===f.id?'var(--brand-light)':'transparent', color:filterStatus===f.id?'var(--brand)':'var(--text-secondary)', fontSize:12, cursor:'pointer', fontWeight:filterStatus===f.id?600:400 }}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {tab==='queue' && (<>
         {loading && <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding:40, gap:8, color:'var(--text-muted)' }}><Loader size={16} style={{ animation:'spin 1s linear infinite' }}/> Loading...</div>}
         {error && <Card style={{ border:'1px solid var(--danger-light)', marginBottom:12 }}><div style={{ color:'var(--danger)', fontSize:14 }}>⚠️ {error}</div></Card>}
-        {!loading && queue.length===0 && <Card><div style={{ textAlign:'center', padding:32, color:'var(--text-muted)' }}><CheckCircle size={28} style={{ margin:'0 auto 10px', color:'var(--success)' }}/><div style={{ fontSize:15, fontWeight:500 }}>Queue is clear</div><div style={{ fontSize:13, marginTop:4 }}>No returns pending review</div></div></Card>}
-        {!loading && queue.map(e => <ClientCard key={e.id} entry={e} caUserId={caUserId} onRefresh={loadQueue}/>)}
+        {!loading && (() => {
+          // Apply filters
+          const filtered = queue.filter(e => {
+            const status = e.returns?.status;
+            const profile = e.profiles;
+            const q = filterSearch.toLowerCase();
+            const matchStatus = filterStatus === 'all' || status === filterStatus;
+            const matchSearch = !q || (profile?.full_name||'').toLowerCase().includes(q) || (profile?.pan||'').toLowerCase().includes(q) || (profile?.email||'').toLowerCase().includes(q);
+            return matchStatus && matchSearch;
+          });
+          if (filtered.length === 0) return (
+            <Card><div style={{ textAlign:'center', padding:32, color:'var(--text-muted)' }}>
+              <CheckCircle size={28} style={{ margin:'0 auto 10px', color:'var(--success)' }}/>
+              <div style={{ fontSize:15, fontWeight:500 }}>{filterStatus === 'all' && !filterSearch ? 'Queue is clear' : 'No matching returns'}</div>
+              <div style={{ fontSize:13, marginTop:4 }}>{filterSearch ? `No results for "${filterSearch}"` : 'No returns with this status'}</div>
+            </div></Card>
+          );
+          return filtered.map(e => <ClientCard key={e.id} entry={e} caUserId={caUserId} onRefresh={loadQueue}/>);
+        })()}
       </>)}
 
       {tab==='messages' && <MessageCenter caUserId={caUserId}/>}

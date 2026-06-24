@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Upload, CheckCircle, ChevronRight, FileText, RotateCcw, Send, Loader, AlertCircle, Info } from 'lucide-react';
 import { computeTax, formatINR, formatINRShort } from '../data/flow.js';
 import CGCollector from './CGCollector.jsx';
+import CGTransactionImporter from './CGTransactionImporter.jsx';
 import { Button, Card, Badge } from './UI.jsx';
 import { useReturn } from '../hooks/useReturn.js';
 import { supabase } from '../lib/supabase.js';
@@ -9,24 +10,27 @@ import { uploadDocument, validateFile } from '../lib/storage.js';
 
 // ── Steps ─────────────────────────────────────────────────────────────────────
 const S = {
-  // AIS first
+  // Welcome — offer prev year ITR upload (optional)
+  WELCOME: 'welcome',
+  PREV_ITR: 'prev_itr',          // optional: upload last year ITR/computation
+  // AIS — now optional
   AIS_UPLOAD: 'ais_upload',
   AIS_CONFIRM: 'ais_confirm',
-  // Identity
-  PROFILE_CONFIRM: 'profile_confirm',  // confirm what AIS shows
-  PROFILE_SELECT: 'profile_select',    // manual fallback
+  // Identity manual entry (when no AIS)
+  MANUAL_IDENTITY: 'manual_identity',
   // Salaried
   FORM16: 'form16',
   // Business
   BIZ_TYPE: 'biz_type',
-  BIZ_DOCS: 'biz_docs',            // upload P&L + B/S
+  BIZ_DOCS: 'biz_docs',
   BIZ_PRESUMPTIVE: 'biz_presumptive',
   // Other income confirmation
-  INCOME_CONFIRM: 'income_confirm', // show what AIS found, let user confirm/add
+  INCOME_CONFIRM: 'income_confirm',
   OS_INCOME: 'os_income',
   HP_TYPE: 'hp_type', HP_RENT: 'hp_rent', HP_MUNI: 'hp_muni',
   CG_CONFIRM: 'cg_confirm',
-  CG_COLLECT: 'cg_collect',   // full sale/purchase collection
+  CG_COLLECT: 'cg_collect',         // CGCollector for manual entry
+  CG_IMPORT: 'cg_import',           // NEW: import from broker report
   // Deductions
   DED_80C: 'ded_80c', DED_80C_AMT: 'ded_80c_amt',
   DED_OTHER: 'ded_other', DED_MED_AMT: 'ded_med_amt',
@@ -392,21 +396,82 @@ export default function TaxChat({ userId }) {
   // HP queue position stored in ref to avoid stale closure
   const hpQueueIdx = useRef(0);
 
+  // Previous year ITR extracted data
+  const [prevItrData, setPrevItrData]   = useState(null);
+  // Persistent floating doc upload
+  const [showDocTray, setShowDocTray]   = useState(false);
+  // Manual identity (when no AIS)
+  const [manualName,  setManualName]    = useState('');
+  const [manualPAN,   setManualPAN]     = useState('');
+  const [manualDOB,   setManualDOB]     = useState('');
+  const [manualPhone, setManualPhone]   = useState('');
+
   const bottomRef = useRef(null);
 
   useEffect(() => {
     if (loadingReturn) return;
     const t = setTimeout(() => {
+      setStep(S.WELCOME);
       addAI(
         <>
           <p style={{ marginBottom:8 }}>👋 Hi! I am <strong>TaxTalk</strong> — your CA assistant from RB Shah & Associates.</p>
-          <p style={{ marginBottom:8 }}>Let us start by uploading your <strong>AIS (Annual Information Statement)</strong> or <strong>Form 26AS</strong> from the IT portal. This pre-fills your name, PAN, income details and TDS — so you do not have to type anything manually.</p>
-          <p style={{ fontSize:13, color:'var(--text-muted)' }}>Download it from: incometax.gov.in → AIS / Form 26AS tab → Export PDF</p>
+          <p style={{ marginBottom:8 }}>Before we begin — do you have your <strong>previous year ITR or Computation sheet</strong>? Uploading it saves time by pre-filling your PAN, address, bank details, and business details automatically.</p>
+          <p style={{ fontSize:13, color:'var(--text-muted)' }}>You can also skip this and enter details manually.</p>
         </>, null
       );
     }, 500);
     return () => clearTimeout(t);
   }, [loadingReturn]);
+
+  // ── Previous year ITR upload ────────────────────────────────────────────────
+  async function handlePrevItrUpload(file) {
+    const err = validateFile(file);
+    if (err) { addAI(<p style={{ color:'var(--danger)' }}>⚠️ {err}</p>, null); return; }
+    setUploading(true); setUploadPct(0);
+    addUser('Uploading previous year ITR / computation...');
+    try {
+      const doc = await uploadDocument(file, returnRecord.id, 'supporting_doc', p => setUploadPct(p));
+      setUploading(false);
+      setProcessing('Reading previous year ITR...');
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/extract', {
+        method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${session.access_token}` },
+        body: JSON.stringify({ documentId: doc.id }),
+      });
+      const { extracted } = await res.json();
+      setProcessing(null);
+      setPrevItrData(extracted);
+      // Pre-fill identity from old ITR
+      if (extracted.pan) setManualPAN(extracted.pan);
+      if (extracted.name) setManualName(extracted.name);
+      if (extracted.dob) setManualDOB(extracted.dob);
+      if (extracted.mobile) setManualPhone(extracted.mobile);
+      addAI(
+        <>
+          <p style={{ marginBottom:8 }}>✨ Details found in your previous year ITR:</p>
+          <div style={{ fontSize:13, border:'1px solid var(--border)', borderRadius:8, overflow:'hidden' }}>
+            {extracted.pan   && <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 12px', borderBottom:'1px solid var(--border)' }}><span style={{ color:'var(--text-muted)' }}>PAN</span><strong>{extracted.pan}</strong></div>}
+            {extracted.name  && <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 12px', borderBottom:'1px solid var(--border)' }}><span style={{ color:'var(--text-muted)' }}>Name</span><strong>{extracted.name}</strong></div>}
+            {extracted.bank_account && <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 12px' }}><span style={{ color:'var(--text-muted)' }}>Bank account</span><strong>{extracted.bank_account}</strong></div>}
+          </div>
+        </>, () => goToAISStep()
+      );
+    } catch(e) {
+      setUploading(false); setProcessing(null);
+      addAI(<p>⚠️ Could not read that file. No problem — let us continue without it.</p>, () => goToAISStep());
+    }
+  }
+
+  function goToAISStep() {
+    setStep(S.AIS_UPLOAD);
+    addAI(
+      <>
+        <p style={{ marginBottom:8 }}>Now, let us get your AIS. This pre-fills all income and TDS details automatically.</p>
+        <p style={{ marginBottom:8 }}>Upload your <strong>AIS / Form 26AS</strong> from incometax.gov.in, or skip and enter details manually.</p>
+        <p style={{ fontSize:12, color:'var(--text-muted)' }}>Download: incometax.gov.in → AIS tab → Export PDF</p>
+      </>, null
+    );
+  }
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:'smooth' }); }, [messages, typing, step, processing]);
 
@@ -689,6 +754,18 @@ export default function TaxChat({ userId }) {
     proceedToDeductions();
   }
 
+  function skipAIS() {
+    addUser("I don't have my AIS right now");
+    setStep(S.MANUAL_IDENTITY);
+    addAI(
+      <p style={{ marginBottom:8 }}>No problem. Let me ask you a few questions to get started. You can always upload your AIS later from the <strong>My Returns</strong> tab.</p>,
+      null
+    );
+    setTimeout(() => {
+      ask(<p>What is your <strong>full name</strong> (as on PAN card)?</p>, 'manual_name', true);
+    }, 800);
+  }
+
   // ── Business type ───────────────────────────────────────────────────────────
   const BIZ_TYPES = [
     { id:'44AD',   label:'Presumptive — Business (Sec 44AD)',    sub:'Turnover ≤ ₹3 Cr · 6%/8% of turnover · No books needed' },
@@ -930,13 +1007,37 @@ export default function TaxChat({ userId }) {
 
   // ── Amount handler ──────────────────────────────────────────────────────────
   function handleAmount() {
-    // Text input vs number input
     const isText = isTextInput;
     const val  = isText ? inputValue.trim() : (parseInt(inputValue.replace(/[^0-9]/g,'')) || 0);
     setShowInput(false); setInputVal(''); setIsTextInput(false);
     addUser(isText ? String(val) : `₹${Number(val).toLocaleString('en-IN')}`);
     const ctx = inputCtx;
 
+    if (ctx === 'manual_name') {
+      setManualName(String(val));
+      ask(<p>What is your <strong>PAN number</strong>? (10 characters)</p>, 'manual_pan', true);
+      return;
+    }
+    if (ctx === 'manual_pan') {
+      setManualPAN(String(val).toUpperCase());
+      ask(<p>What is your <strong>date of birth</strong>? (DD/MM/YYYY)</p>, 'manual_dob', true);
+      return;
+    }
+    if (ctx === 'manual_dob') {
+      setManualDOB(String(val));
+      ask(<p>What is your <strong>mobile number</strong>?</p>, 'manual_phone', true);
+      return;
+    }
+    if (ctx === 'manual_phone') {
+      setManualPhone(String(val));
+      // Pre-fill identity and proceed to profile selection
+      setIdentity({ name:manualName, pan:manualPAN, dob:manualDOB, phone:String(val), email:'', address:'' });
+      addAI(
+        <p style={{ marginBottom:8 }}>Got it. You can upload your AIS / Form 16 / any other document at any time from the upload tray at the top of this screen. Let us now choose your income type.</p>,
+        () => { setTaxProfile(null); setStep(S.BIZ_TYPE); addAI(<p>What type of income do you primarily have?</p>, null); }
+      );
+      return;
+    }
     if (ctx === 'biz_name') {
       setBizNameState(String(val));
       proceedToBalanceSheet();
@@ -1108,6 +1209,58 @@ export default function TaxChat({ userId }) {
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'var(--surface-2)', overflow:'hidden' }}>
 
+      {/* Persistent document upload tray */}
+      {showDocTray && (
+        <div style={{ background:'var(--surface)', borderBottom:'1px solid var(--border)', padding:'10px 14px', flexShrink:0, animation:'fadeUp 0.2s ease' }}>
+          <div style={{ fontWeight:600, fontSize:12, color:'var(--brand)', marginBottom:8 }}>Upload document</div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+            {[
+              { type:'ais',           label:'AIS / Form 26AS' },
+              { type:'form16',        label:'Form 16' },
+              { type:'balance_sheet', label:'Balance Sheet' },
+              { type:'pl_statement',  label:'P&L Statement' },
+              { type:'supporting_doc',label:'Other document' },
+            ].map(d => {
+              const ref = React.createRef();
+              return (
+                <div key={d.type}>
+                  <input type="file" ref={ref} accept=".pdf,.jpg,.jpeg,.png" style={{ display:'none' }}
+                    onChange={async e => {
+                      const file = e.target.files[0]; if(!file) return;
+                      setUploading(true);
+                      try {
+                        const doc = await uploadDocument(file, returnRecord.id, d.type, p => setUploadPct(p));
+                        addAI(<p>✅ {d.label} uploaded. <span style={{ fontSize:12, color:'var(--text-muted)' }}>I will use this for your return calculations.</span></p>, null);
+                        // Trigger re-extraction for AIS
+                        if (d.type === 'ais') {
+                          setProcessing('Reading AIS...');
+                          const { data:{ session } } = await supabase.auth.getSession();
+                          const res = await fetch('/api/extract', { method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`}, body:JSON.stringify({ documentId: doc.id }) });
+                          const { extracted } = await res.json();
+                          setProcessing(null);
+                          if (extracted) {
+                            // Update TDS / advance tax if already past that step
+                            const newTDS = extracted.total_tds || 0;
+                            const newAdv = extracted.total_advance_tax || 0;
+                            if (newTDS > 0) setTds(newTDS);
+                            if (newAdv > 0) setAdvTax(newAdv);
+                            addAI(<p>AIS data updated — TDS: <strong>{formatINR(newTDS)}</strong>, Advance tax: <strong>{formatINR(newAdv)}</strong></p>, null);
+                          }
+                        }
+                        setShowDocTray(false);
+                      } catch(ex) { addAI(<p style={{ color:'var(--danger)' }}>Upload failed: {ex.message}</p>, null); }
+                      finally { setUploading(false); setUploadPct(0); }
+                    }}/>
+                  <button onClick={() => ref.current?.click()} style={{ padding:'6px 12px', borderRadius:8, border:'1px solid var(--border-strong)', background:'var(--surface-2)', fontSize:12, cursor:'pointer', color:'var(--text-secondary)' }}>
+                    {d.label}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Sub-header in chat */}
       <div style={{ background:'var(--surface)', borderBottom:'1px solid var(--border)', padding:'8px 14px', display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
         <div style={{ flex:1, minWidth:0 }}>
@@ -1117,6 +1270,10 @@ export default function TaxChat({ userId }) {
           </div>
         </div>
         <Badge variant="info"><FileText size={11}/> {itrBadge}</Badge>
+        <button onClick={() => setShowDocTray(d => !d)} title="Upload document"
+          style={{ padding:'4px 8px', border:'1px solid var(--border)', borderRadius:6, background:showDocTray?'var(--brand-light)':'transparent', color:showDocTray?'var(--brand)':'var(--text-muted)', cursor:'pointer', fontSize:12, display:'flex', alignItems:'center', gap:4 }}>
+          <Upload size={12}/> <span style={{ fontSize:11 }}>Docs</span>
+        </button>
       </div>
 
       {/* Messages */}
@@ -1131,11 +1288,31 @@ export default function TaxChat({ userId }) {
       {!typing && !processing && (
         <div className="controls-panel">
 
-          {/* Step 1: AIS upload */}
+          {/* Step 0: Welcome — prev year ITR (optional) */}
+          {step === S.WELCOME && !uploading && (
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              <UploadBtn label="Upload previous year ITR or Computation" subLabel="Optional — PDF or image" onFile={handlePrevItrUpload} uploading={uploading} progress={uploadPct}/>
+              <button onClick={goToAISStep} style={{ padding:10, border:'1px solid var(--border)', borderRadius:'var(--radius-md)', background:'transparent', color:'var(--text-secondary)', fontSize:13, cursor:'pointer' }}>
+                Skip — I don't have previous year ITR
+              </button>
+            </div>
+          )}
+
+          {/* Step 1: AIS upload — now OPTIONAL */}
           {step === S.AIS_UPLOAD && (
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               <UploadBtn label="Upload AIS / Form 26AS" subLabel="PDF from incometax.gov.in" onFile={handleAISUpload} uploading={uploading} progress={uploadPct}/>
+              <button onClick={skipAIS} style={{ padding:10, border:'1px solid var(--border)', borderRadius:'var(--radius-md)', background:'transparent', color:'var(--text-secondary)', fontSize:13, cursor:'pointer' }}>
+                Skip — I'll upload later or enter manually
+              </button>
               {uploadError && <div style={{ display:'flex', gap:6, fontSize:12, color:'var(--danger)', alignItems:'center' }}><AlertCircle size={13}/>{uploadError}</div>}
+            </div>
+          )}
+
+          {/* Manual identity (no AIS path) */}
+          {step === S.MANUAL_IDENTITY && !showInput && (
+            <div style={{ padding:'10px 14px', background:'var(--surface-2)', borderRadius:8, fontSize:13, color:'var(--text-secondary)' }}>
+              Entering details manually...
             </div>
           )}
 
@@ -1165,10 +1342,24 @@ export default function TaxChat({ userId }) {
             </div>
           )}
 
-          {/* CG collection — full sale/purchase details */}
-          {step === S.CG_COLLECT && (
+          {/* CG collection — full sale/purchase details OR import from broker */}
+          {(step === S.CG_COLLECT || step === S.CG_IMPORT) && (
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              <CGCollector value={capitalGains || { enabled:true }} onChange={cg => setCG(cg)} />
+              {/* Toggle between import and manual */}
+              <div style={{ display:'flex', gap:6, borderBottom:'1px solid var(--border)', paddingBottom:8 }}>
+                <button onClick={() => setStep(S.CG_IMPORT)} style={{ fontSize:12, padding:'5px 12px', borderRadius:20, border:'1.5px solid '+(step===S.CG_IMPORT?'var(--brand)':'var(--border-strong)'), background:step===S.CG_IMPORT?'var(--brand-light)':'transparent', color:step===S.CG_IMPORT?'var(--brand)':'var(--text-secondary)', cursor:'pointer' }}>
+                  📊 Import from broker report
+                </button>
+                <button onClick={() => setStep(S.CG_COLLECT)} style={{ fontSize:12, padding:'5px 12px', borderRadius:20, border:'1.5px solid '+(step===S.CG_COLLECT?'var(--brand)':'var(--border-strong)'), background:step===S.CG_COLLECT?'var(--brand-light)':'transparent', color:step===S.CG_COLLECT?'var(--brand)':'var(--text-secondary)', cursor:'pointer' }}>
+                  ✏️ Enter manually
+                </button>
+              </div>
+              {step === S.CG_IMPORT && returnRecord?.id && (
+                <CGTransactionImporter returnId={returnRecord.id} value={capitalGains || {}} onChange={cg => setCG(cg)} />
+              )}
+              {step === S.CG_COLLECT && (
+                <CGCollector value={capitalGains || { enabled:true }} onChange={cg => setCG(cg)} />
+              )}
               <Button variant="primary" onClick={() => {
                 addUser("Capital gains details confirmed");
                 if (extraIncomeTypes.includes("hp")) {

@@ -624,6 +624,71 @@ function ClientComputationEditor({ returnId, userId, initialComp, onSaved }) {
   );
 }
 
+
+// ── Return stage timeline ─────────────────────────────────────────────────────
+const STAGES = [
+  { id: 'in_progress', label: 'Data collection',   icon: '📝', desc: 'Gathering income details' },
+  { id: 'submitted',   label: 'CA review',          icon: '🔍', desc: 'CA is reviewing your return' },
+  { id: 'queried',     label: 'Clarification',      icon: '💬', desc: 'CA needs additional information' },
+  { id: 'approved',    label: 'Approved',           icon: '✅', desc: 'Return verified and approved' },
+  { id: 'filed',       label: 'Filed',              icon: '🎉', desc: 'ITR successfully submitted to ITD' },
+];
+
+function ReturnTimeline({ currentStatus, ackNo, filedAt }) {
+  const statusOrder = ['in_progress', 'submitted', 'approved', 'filed'];
+  // For queried, show it at submitted level
+  const effectiveStatus = currentStatus === 'queried' ? 'submitted' : currentStatus;
+  const currentIdx = statusOrder.indexOf(effectiveStatus);
+
+  return (
+    <div style={{ padding: '14px 0', marginBottom: 14 }}>
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>Filing progress</div>
+      <div style={{ position: 'relative' }}>
+        {/* Progress line */}
+        <div style={{ position: 'absolute', top: 16, left: 16, right: 16, height: 2, background: 'var(--border)', zIndex: 0 }}>
+          <div style={{ height: '100%', background: 'var(--brand)', width: `${Math.min(100, (currentIdx / (statusOrder.length - 1)) * 100)}%`, transition: 'width 0.5s ease' }}/>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', zIndex: 1 }}>
+          {statusOrder.map((stage, idx) => {
+            const isComplete = idx < currentIdx;
+            const isCurrent  = idx === currentIdx;
+            const stage_data = STAGES.find(s => s.id === stage) || STAGES[idx];
+            return (
+              <div key={stage} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: isComplete ? 'var(--brand)' : isCurrent ? 'var(--brand)' : 'var(--surface)',
+                  border: `2px solid ${isComplete || isCurrent ? 'var(--brand)' : 'var(--border-strong)'}`,
+                  fontSize: 14, marginBottom: 6,
+                  boxShadow: isCurrent ? '0 0 0 4px var(--brand-light)' : 'none',
+                }}>
+                  {isComplete ? '✓' : stage_data?.icon || '○'}
+                </div>
+                <div style={{ fontSize: 10, textAlign: 'center', fontWeight: isCurrent ? 600 : 400, color: isCurrent ? 'var(--brand)' : isComplete ? 'var(--text-secondary)' : 'var(--text-muted)', lineHeight: 1.3, maxWidth: 60 }}>
+                  {stage_data?.label}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {/* Clarification notice */}
+      {currentStatus === 'queried' && (
+        <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--warn-light)', borderRadius: 8, fontSize: 12, color: '#92400e', display: 'flex', gap: 6 }}>
+          💬 Your CA has a question. Check the Messages tab.
+        </div>
+      )}
+      {/* Filed acknowledgment */}
+      {currentStatus === 'filed' && ackNo && (
+        <div style={{ marginTop: 12, padding: '10px 14px', background: 'var(--success-light)', borderRadius: 8, fontSize: 13, color: 'var(--success)', fontWeight: 600 }}>
+          🎉 Filed! Acknowledgment No: <span style={{ fontFamily: 'monospace' }}>{ackNo}</span>
+          {filedAt && <div style={{ fontSize: 11, fontWeight: 400, marginTop: 2 }}>Filed on: {new Date(filedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Return card — full featured ───────────────────────────────────────────────
 function ReturnCard({ ret, userId, onDelete, onUpdate }) {
   const [expanded, setExpanded]   = useState(false);
@@ -701,6 +766,9 @@ function ReturnCard({ ret, userId, onDelete, onUpdate }) {
 
       {expanded && (
         <div style={{ marginTop: 14 }}>
+          {/* Return stage timeline */}
+          <ReturnTimeline currentStatus={ret.status} ackNo={ret.acknowledgement_no} filedAt={ret.filed_at}/>
+
           {/* Tax summary tiles */}
           {Object.keys(computation).length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 14 }}>
