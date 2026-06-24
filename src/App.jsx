@@ -4,7 +4,7 @@ import { useAuth } from './hooks/useAuth.js';
 import AuthScreen from './components/AuthScreen.jsx';
 import TaxChat from './components/TaxChat.jsx';
 import CADashboard from './components/CADashboard.jsx';
-import ClientInbox from './components/ClientInbox.jsx';
+import ClientReturnManager from './components/ClientReturnManager.jsx';
 import KYCScreen from './components/KYCScreen.jsx';
 import ProfileSettings from './components/ProfileSettings.jsx';
 import './index.css';
@@ -126,7 +126,7 @@ export default function App() {
         {/* Inbox tab */}
         <div style={{ display: view === 'inbox' ? 'flex' : 'none', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
           <div className="page-content">
-            {!auth.isCA && <ClientInbox userId={auth.user.id}/>}
+            {!auth.isCA && <ClientReturnManager userId={auth.user.id}/>}
           </div>
         </div>
 

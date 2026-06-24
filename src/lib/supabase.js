@@ -409,3 +409,118 @@ export async function getReturnDocuments(returnId) {
   if (error) throw error;
   return data || [];
 }
+
+// ─── Document management ─────────────────────────────────────
+
+export async function deleteDocument(documentId) {
+  // soft-delete by marking inactive; hard delete if needed
+  const { error } = await supabase
+    .from('documents')
+    .update({ extraction_status: 'deleted' })
+    .eq('id', documentId);
+  if (error) throw error;
+}
+
+export async function getMyDocuments(returnId) {
+  const { data, error } = await supabase
+    .from('documents')
+    .select('id, doc_type, original_name, extraction_status, confidence, created_at, storage_path')
+    .eq('return_id', returnId)
+    .neq('extraction_status', 'deleted')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+// ─── Client computation updates ─────────────────────────────
+
+export async function clientUpdateComputation(returnId, userId, computation, changeNote) {
+  // Save updated computation
+  const { determineITRForm } = await import('./itrJson.js');
+  const itrForm = determineITRForm(computation.profile, computation);
+  const { data, error } = await supabase
+    .from('returns')
+    .update({
+      computation,
+      old_regime_tax: computation.oldTax,
+      new_regime_tax: computation.newTax,
+      chosen_regime:  computation.betterRegime,
+      refund_amount:  computation.refund     || 0,
+      balance_due:    computation.balanceDue || 0,
+      itr_form:       itrForm,
+      status:         'submitted',          // keep as submitted, not revert to in_progress
+    })
+    .eq('id', returnId)
+    .select()
+    .single();
+  if (error) throw error;
+
+  // Notify CA via message
+  if (changeNote) {
+    const caQueueEntry = await supabase
+      .from('ca_queue')
+      .select('user_id')
+      .eq('return_id', returnId)
+      .single();
+    // Get a CA user to notify (first available CA)
+    const { data: caProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'ca_admin')
+      .limit(1)
+      .single();
+    if (caProfile?.id) {
+      await supabase.from('ca_queries').insert({
+        return_id: returnId,
+        from_user_id: userId,
+        to_user_id: caProfile.id,
+        message: `📝 Client updated computation: ${changeNote}`,
+      });
+    }
+  }
+  await logAudit(returnId, userId, 'client_updated_computation', { note: changeNote });
+  return data;
+}
+
+// ─── Challan / additional tax payment entry ──────────────────
+
+export async function getChallans(returnId) {
+  const { data, error } = await supabase
+    .from('challans')
+    .select('*')
+    .eq('return_id', returnId)
+    .order('payment_date', { ascending: true });
+  if (error) {
+    // Table might not exist yet — return empty gracefully
+    console.warn('challans table not found, returning empty:', error.message);
+    return [];
+  }
+  return data || [];
+}
+
+export async function addChallan(returnId, userId, challan) {
+  const { data, error } = await supabase
+    .from('challans')
+    .insert({ return_id: returnId, user_id: userId, ...challan })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteChallan(challanId) {
+  const { error } = await supabase.from('challans').delete().eq('id', challanId);
+  if (error) throw error;
+}
+
+// ─── Get return with documents (for client view) ─────────────
+
+export async function getMyReturnsWithDocs(userId) {
+  const { data, error } = await supabase
+    .from('returns')
+    .select('id, assessment_year, status, itr_form, profile, computation, created_at, updated_at, acknowledgement_no, filed_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}

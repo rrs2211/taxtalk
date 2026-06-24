@@ -303,9 +303,16 @@ function ClientCard({ entry, caUserId, onRefresh }) {
     finally { setSaving(false); }
   }
 
-  function handleGenerateJson(clientDetails) {
+  async function handleGenerateJson(clientDetails) {
     setShowModal(false);
-    const json = generateITRJson(itrForm, ret, clientDetails, comp);
+    // Fetch challans to include BSR/serial entries in ScheduleIT
+    let challans = [];
+    try {
+      const { getChallans } = await import('../lib/supabase.js');
+      challans = await getChallans(ret.id);
+    } catch(e) { console.warn('Could not fetch challans:', e.message); }
+    const compWithChallans = { ...comp, challans };
+    const json = generateITRJson(itrForm, ret, clientDetails, compWithChallans);
     setItrJson(json); setShowFiling(true);
   }
 
