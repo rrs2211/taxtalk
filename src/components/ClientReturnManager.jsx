@@ -13,6 +13,7 @@ import {
   CheckCircle, ChevronDown, ChevronUp, Send, Loader, X,
   PlusCircle, Eye, AlertTriangle, Info, Receipt, RotateCcw
 } from 'lucide-react';
+import { useTranslation, translate } from '../i18n.js';
 import { supabase, getMyReturnsWithDocs, getMyDocuments, deleteDocument,
   clientUpdateComputation, addChallan, deleteChallan, getChallans,
   sendMessage, markMessagesRead, deleteReturn } from '../lib/supabase.js';
@@ -627,14 +628,14 @@ function ClientComputationEditor({ returnId, userId, initialComp, onSaved }) {
 
 // ── Return stage timeline ─────────────────────────────────────────────────────
 const STAGES = [
-  { id: 'in_progress', label: 'Data collection',   icon: '📝', desc: 'Gathering income details' },
-  { id: 'submitted',   label: 'CA review',          icon: '🔍', desc: 'CA is reviewing your return' },
-  { id: 'queried',     label: 'Clarification',      icon: '💬', desc: 'CA needs additional information' },
-  { id: 'approved',    label: 'Approved',           icon: '✅', desc: 'Return verified and approved' },
-  { id: 'filed',       label: 'Filed',              icon: '🎉', desc: 'ITR successfully submitted to ITD' },
+  { id: 'in_progress', labelKey: 'stage.in_progress', icon: '📝' },
+  { id: 'submitted',   labelKey: 'stage.submitted',   icon: '🔍' },
+  { id: 'approved',    labelKey: 'stage.approved',    icon: '✅' },
+  { id: 'filed',       labelKey: 'stage.filed',       icon: '🎉' },
 ];
 
-function ReturnTimeline({ currentStatus, ackNo, filedAt }) {
+function ReturnTimeline({ currentStatus, ackNo, filedAt, lang = 'en' }) {
+  const T = (k) => translate(k, lang);
   const statusOrder = ['in_progress', 'submitted', 'approved', 'filed'];
   // For queried, show it at submitted level
   const effectiveStatus = currentStatus === 'queried' ? 'submitted' : currentStatus;
@@ -665,7 +666,7 @@ function ReturnTimeline({ currentStatus, ackNo, filedAt }) {
                   {isComplete ? '✓' : stage_data?.icon || '○'}
                 </div>
                 <div style={{ fontSize: 10, textAlign: 'center', fontWeight: isCurrent ? 600 : 400, color: isCurrent ? 'var(--brand)' : isComplete ? 'var(--text-secondary)' : 'var(--text-muted)', lineHeight: 1.3, maxWidth: 60 }}>
-                  {stage_data?.label}
+                  {stage_data?.labelKey ? T(stage_data.labelKey) : (stage_data?.label || stage)}
                 </div>
               </div>
             );
@@ -690,7 +691,8 @@ function ReturnTimeline({ currentStatus, ackNo, filedAt }) {
 }
 
 // ── Return card — full featured ───────────────────────────────────────────────
-function ReturnCard({ ret, userId, onDelete, onUpdate }) {
+function ReturnCard({ ret, userId, onDelete, onUpdate, lang = 'en' }) {
+  const T = (k) => translate(k, lang);
   const [expanded, setExpanded]   = useState(false);
   const [activeTab, setActiveTab] = useState('messages');
   const [unread, setUnread]       = useState(0);
@@ -767,7 +769,7 @@ function ReturnCard({ ret, userId, onDelete, onUpdate }) {
       {expanded && (
         <div style={{ marginTop: 14 }}>
           {/* Return stage timeline */}
-          <ReturnTimeline currentStatus={ret.status} ackNo={ret.acknowledgement_no} filedAt={ret.filed_at}/>
+          <ReturnTimeline currentStatus={ret.status} ackNo={ret.acknowledgement_no} filedAt={ret.filed_at} lang={lang}/>
 
           {/* Tax summary tiles */}
           {Object.keys(computation).length > 0 && (
@@ -885,6 +887,8 @@ function ReturnCard({ ret, userId, onDelete, onUpdate }) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 export default function ClientReturnManager({ userId }) {
+  const { lang }  = useTranslation();
+  const T = (k) => translate(k, lang);
   const [returns, setReturns] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -904,8 +908,8 @@ export default function ClientReturnManager({ userId }) {
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '16px 14px' }}>
       <div style={{ marginBottom: 16 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 3 }}>My Returns</h1>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>View status, update details, add tax payments, and message your CA</p>
+        <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 3 }}>{T('returns.title')}</h1>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{T('returns.subtitle')}</p>
       </div>
 
       {loading && (
@@ -929,6 +933,7 @@ export default function ClientReturnManager({ userId }) {
           key={r.id}
           ret={r}
           userId={userId}
+          lang={lang}
           onDelete={id => setReturns(rs => rs.filter(r => r.id !== id))}
           onUpdate={handleUpdate}
         />

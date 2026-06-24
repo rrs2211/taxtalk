@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { MessageCircle, ClipboardCheck, Inbox, User, LogOut, Shield, ChevronLeft } from 'lucide-react';
 import { useAuth } from './hooks/useAuth.js';
+import { LangProvider } from './i18n.js';
+import LanguageSwitcher from './components/LanguageSwitcher.jsx';
 import AuthScreen from './components/AuthScreen.jsx';
 import TaxChat from './components/TaxChat.jsx';
 import CADashboard from './components/CADashboard.jsx';
@@ -51,6 +53,12 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [deferredPrompt, setDeferred] = useState(null);
   const [showInstall, setShowInstall] = useState(false);
+  // Language: persisted in localStorage
+  const [lang, setLang] = useState(() => localStorage.getItem('taxtalk_lang') || 'en');
+  function handleLangChange(l) {
+    setLang(l);
+    localStorage.setItem('taxtalk_lang', l);
+  }
 
   // PWA install prompt
   useEffect(() => {
@@ -97,6 +105,7 @@ export default function App() {
   const firstName = auth.profile?.full_name?.split(' ')[0] || auth.profile?.email?.split('@')[0] || 'Account';
 
   return (
+    <LangProvider value={{ lang, setLang: handleLangChange }}>
     <div className="app-shell">
       {/* Top nav */}
       <header className="top-nav">
@@ -110,10 +119,13 @@ export default function App() {
           )}
         </div>
 
-        {/* Logout on far right */}
-        <button onClick={auth.signOut} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'transparent', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', minHeight: 36 }}>
-          <LogOut size={13}/> <span style={{ display: 'none' }}>Sign out</span>
-        </button>
+        {/* Language switcher + logout */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <LanguageSwitcher/>
+          <button onClick={auth.signOut} style={{ display: 'flex', alignItems: 'center', padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'transparent', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', minHeight: 36 }}>
+            <LogOut size={13}/>
+          </button>
+        </div>
       </header>
 
       {/* Page content */}
@@ -200,5 +212,6 @@ export default function App() {
       {/* PWA install prompt */}
       {showInstall && <InstallBanner onInstall={handleInstall} onDismiss={() => setShowInstall(false)}/>}
     </div>
+    </LangProvider>
   );
 }

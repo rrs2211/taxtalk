@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Upload, CheckCircle, ChevronRight, FileText, RotateCcw, Send, Loader, AlertCircle, Info } from 'lucide-react';
 import { computeTax, formatINR, formatINRShort } from '../data/flow.js';
+import { useTranslation, translate } from '../i18n.js';
 import CGCollector from './CGCollector.jsx';
 import CGTransactionImporter from './CGTransactionImporter.jsx';
 import { Button, Card, Badge } from './UI.jsx';
@@ -346,6 +347,10 @@ function ComputationCard({ initialData, initialInputs, aisFlags, onApprove, subm
 // ── Main TaxChat ──────────────────────────────────────────────────────────────
 export default function TaxChat({ userId }) {
   const { returnRecord, loadingReturn, saveComputation, persistMessage, submitToCA } = useReturn(userId);
+  const { lang, t: tr }   = useTranslation();
+
+  // Convenience: translate with current lang
+  const T = (key, vars) => translate(key, lang, vars);
 
   const [step, setStep]             = useState(S.AIS_UPLOAD);
   const [messages, setMessages]     = useState([]);
@@ -400,23 +405,30 @@ export default function TaxChat({ userId }) {
   const [prevItrData, setPrevItrData]   = useState(null);
   // Persistent floating doc upload
   const [showDocTray, setShowDocTray]   = useState(false);
+  const [showStructured, setShowStructured] = useState(false); // toggle structured form vs chat
   // Manual identity (when no AIS)
   const [manualName,  setManualName]    = useState('');
   const [manualPAN,   setManualPAN]     = useState('');
   const [manualDOB,   setManualDOB]     = useState('');
   const [manualPhone, setManualPhone]   = useState('');
 
-  const bottomRef = useRef(null);
+  const bottomRef     = useRef(null);
+
+  // Free-text chat (always available alongside structured flow)
+  const [freeText,    setFreeText]    = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
 
   useEffect(() => {
     if (loadingReturn) return;
     const t = setTimeout(() => {
       setStep(S.WELCOME);
+      const wLang = localStorage.getItem('taxtalk_lang') || 'en';
+      const W = (k) => translate(k, wLang);
       addAI(
         <>
-          <p style={{ marginBottom:8 }}>👋 Hi! I am <strong>TaxTalk</strong> — your CA assistant from RB Shah & Associates.</p>
-          <p style={{ marginBottom:8 }}>Before we begin — do you have your <strong>previous year ITR or Computation sheet</strong>? Uploading it saves time by pre-filling your PAN, address, bank details, and business details automatically.</p>
-          <p style={{ fontSize:13, color:'var(--text-muted)' }}>You can also skip this and enter details manually.</p>
+          <p style={{ marginBottom:8 }}>{W('chat.welcome_1')}</p>
+          <p style={{ marginBottom:8 }}>{W('chat.welcome_2')}</p>
+          <p style={{ fontSize:13, color:'var(--text-muted)' }}>{W('chat.welcome_3')}</p>
         </>, null
       );
     }, 500);
@@ -489,6 +501,76 @@ export default function TaxChat({ userId }) {
   }
   function ask(jsxContent, ctx, textMode=false) {
     addAI(jsxContent, () => { setInputVal(''); setInputCtx(ctx); setIsTextInput(textMode); setShowInput(true); });
+  }
+
+  // ── Freeform chat handler ──────────────────────────────────────────────────
+  async function handleFreeChat() {
+    if (!freeText.trim()) return;
+    const text = freeText.trim();
+    setFreeText('');
+    addUser(text);
+    setFreeParsing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/chat-parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ message: text, language: lang }),
+      });
+      const { parsed } = await res.json();
+      setFreeParsing(false);
+
+      const ext = parsed?.extracted || {};
+      let updates = [];
+
+      // Apply extracted values
+      if (ext.gross_salary)       { setGross(ext.gross_salary);       updates.push(`Salary: ${formatINR(ext.gross_salary)}`); }
+      if (ext.tds_deducted)       { setTds(ext.tds_deducted);         updates.push(`TDS: ${formatINR(ext.tds_deducted)}`); }
+      if (ext.advance_tax)        { setAdvTax(ext.advance_tax);       updates.push(`Advance tax: ${formatINR(ext.advance_tax)}`); }
+      if (ext.self_assessment_tax){ setSelfAss(ext.self_assessment_tax); updates.push(`Self-assessment tax: ${formatINR(ext.self_assessment_tax)}`); }
+      if (ext.savings_interest)   { setSavInt(ext.savings_interest);  setInt(i => i + ext.savings_interest); updates.push(`Savings interest: ${formatINR(ext.savings_interest)}`); }
+      if (ext.fd_interest)        { setFdInt(ext.fd_interest);        setInt(i => i + ext.fd_interest); updates.push(`FD interest: ${formatINR(ext.fd_interest)}`); }
+      if (ext.interest_income && !ext.savings_interest && !ext.fd_interest) { setInt(ext.interest_income); setSavInt(ext.interest_income); updates.push(`Interest: ${formatINR(ext.interest_income)}`); }
+      if (ext.dividend_income)    { setDiv(ext.dividend_income);      updates.push(`Dividends: ${formatINR(ext.dividend_income)}`); }
+      if (ext.business_income)    { setBiz(ext.business_income);      updates.push(`Business income: ${formatINR(ext.business_income)}`); }
+      if (ext.deductions_80c)     { setD80C(ext.deductions_80c);      updates.push(`80C: ${formatINR(ext.deductions_80c)}`); }
+      if (ext.deductions_80d)     { setD80D(ext.deductions_80d);      updates.push(`Mediclaim: ${formatINR(ext.deductions_80d)}`); }
+
+      // Build response message
+      const confirmed = parsed.understood_message || '';
+      const followUps = parsed.follow_up_questions || [];
+
+      addAI(
+        <>
+          {updates.length > 0 && (
+            <div style={{ marginBottom:8 }}>
+              <div style={{ fontSize:12, fontWeight:600, color:'var(--brand)', marginBottom:4 }}>
+                {parsed.language === 'gu' ? 'સ​મ​જ​યો:' : parsed.language === 'hi' ? 'समझा:' : 'Understood:'}
+              </div>
+              <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:8, overflow:'hidden', fontSize:13 }}>
+                {updates.map((u,i) => (
+                  <div key={i} style={{ padding:'6px 10px', borderBottom: i<updates.length-1?'1px solid var(--border)':'none', display:'flex', justifyContent:'space-between' }}>
+                    <span style={{ color:'var(--text-secondary)' }}>{u.split(':')[0]}</span>
+                    <span style={{ fontWeight:600, color:'var(--brand)' }}>{u.split(':').slice(1).join(':')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {followUps.length > 0 && (
+            <div>
+              {followUps.map((q, i) => <p key={i} style={{ marginBottom: i<followUps.length-1?6:0 }}>{q}</p>)}
+            </div>
+          )}
+          {updates.length === 0 && !followUps.length && (
+            <p>{parsed.language === 'gu' ? 'xyamā māhitī mēḷwī ṣakyō nathī. nīcē wIgat dasro.' : parsed.language === 'hi' ? 'जानकारी नहीं मिली। नीचे विवरण दें।' : 'Could not extract specific figures. Please use the steps below or be more specific.'}</p>
+          )}
+        </>, null
+      );
+    } catch(e) {
+      setFreeParsing(false);
+      addAI(<p>Could not process your message. Please try again.</p>, null);
+    }
   }
 
   // ── AIS Upload & Parse ──────────────────────────────────────────────────────
@@ -772,6 +854,7 @@ export default function TaxChat({ userId }) {
     { id:'44ADA',  label:'Presumptive — Professional (Sec 44ADA)',sub:'Receipts ≤ ₹75L · 50% of receipts · No books needed' },
     { id:'actual', label:'Actual profit — books of accounts',    sub:'Upload P&L and Balance Sheet · CA handles disallowances' },
   ];
+  // Freeform chat
   const [selBizType,  setSelBizType]  = useState('44AD');
   const [bizTurnover, setBizTurnover] = useState(0);       // raw turnover
   const [bizCashPct,  setBizCashPct]  = useState(0);       // % cash turnover (for 44AD 8% calc)
@@ -1127,6 +1210,211 @@ export default function TaxChat({ userId }) {
     }
   }
 
+  // ── Free-text chat handler ─────────────────────────────────────────────────
+  // Conversation history for multi-turn context (last 6 turns)
+  const chatHistoryRef = useRef([]);
+
+  async function handleFreeChat() {
+    if (!freeText.trim() || chatLoading) return;
+    const msg = freeText.trim();
+    setFreeText('');
+    addUser(msg);
+    setChatLoading(true);
+
+    // Add to history
+    chatHistoryRef.current = [
+      ...chatHistoryRef.current.slice(-5),
+      { role: 'user', content: msg },
+    ];
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          message: msg,
+          lang: lang || 'en',
+          conversationHistory: chatHistoryRef.current.slice(0, -1), // exclude current
+          state: {
+            step,
+            profile:        taxProfile,
+            grossSalary,
+            businessIncome,
+            bizTurnover,
+            savingsInterest,
+            fdInterest,
+            dividendIncome,
+            otherIncome:    otherOSIncome,
+            houseRentReceived: houseProperty?.rentReceived || 0,
+            tds,
+            advanceTax,
+            selfAssessment: selfAssess,
+            deductions80C,
+            deductions80D,
+            homeLoanInterest: houseProperty?.interestPaid || 0,
+            capitalGainStcg: (capitalGains?.shares?.stcg?.gain) || 0,
+            capitalGainLtcg: (capitalGains?.shares?.ltcg?.gain) || 0,
+            hasBankAccount:  false, // will track later
+            ageGroup,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || 'Chat API error');
+      }
+
+      const parsed = await res.json();
+      const ex = parsed.extracted || {};
+
+      // ── Apply ALL extracted fields to state ─────────────────────────────────
+      let profileUpdated = null;
+
+      if (ex.profile            != null) { setTaxProfile(ex.profile); profileUpdated = ex.profile; }
+      if (ex.ageGroup           != null)   setAgeGroup(ex.ageGroup);
+
+      // Income
+      if (ex.grossSalary        != null) { setGross(ex.grossSalary); profileUpdated = profileUpdated || 'salaried'; setTaxProfile(p => p || 'salaried'); }
+      if (ex.businessIncome     != null) { setBiz(ex.businessIncome); setTaxProfile(p => p || ex.bizType === '44ADA' ? 'freelancer' : 'business'); }
+      if (ex.bizTurnover        != null)   setBizTurnover(ex.bizTurnover);
+      if (ex.bizType            != null)   setSelBizType(ex.bizType);
+      if (ex.bizName            != null)   setBizNameState(ex.bizName);
+      if (ex.bizCashPct         != null)   setBizCashPct(ex.bizCashPct);
+      if (ex.savingsInterest    != null) { setSavInt(ex.savingsInterest); setInt(ex.savingsInterest + (fdInterest || 0)); }
+      if (ex.fdInterest         != null) { setFdInt(ex.fdInterest); setInt((savingsInterest || 0) + ex.fdInterest); }
+      if (ex.dividendIncome     != null)   setDiv(ex.dividendIncome);
+      if (ex.otherIncome        != null)   setOtherOS(ex.otherIncome);
+      if (ex.employerName       != null)   setEmpName(ex.employerName);
+      if (ex.employerTAN        != null)   setEmpTAN(ex.employerTAN);
+
+      // House property
+      if (ex.houseRentReceived != null || ex.municipalTax != null || ex.homeLoanInterest != null) {
+        setHP(p => ({
+          enabled:        true,
+          type:           ex.houseRentReceived ? 'Rented' : (p?.type || 'Self Occupied'),
+          rentReceived:   ex.houseRentReceived   ?? p?.rentReceived   ?? 0,
+          municipalTaxes: ex.municipalTax         ?? p?.municipalTaxes ?? 0,
+          interestPaid:   ex.homeLoanInterest      ?? p?.interestPaid   ?? 0,
+        }));
+      }
+
+      // Capital gains
+      if (ex.capitalGainStcg != null || ex.capitalGainLtcg != null || ex.capitalGainProperty != null) {
+        setCG(p => ({
+          ...p, enabled: true,
+          shares: {
+            stcg: ex.capitalGainStcg    != null ? { gain: ex.capitalGainStcg, saleValue: 0, purchaseCost: 0, expenses: 0 } : p?.shares?.stcg,
+            ltcg: ex.capitalGainLtcg    != null ? { gain: ex.capitalGainLtcg, saleValue: 0, purchaseCost: 0, expenses: 0 } : p?.shares?.ltcg,
+          },
+          property: ex.capitalGainProperty != null ? { ltcgDetail: { gain: ex.capitalGainProperty, saleValue: 0, indexedCost: 0, expenses: 0 } } : p?.property,
+        }));
+      }
+
+      // Taxes
+      if (ex.tds              != null) setTds(ex.tds);
+      if (ex.advanceTax       != null) setAdvTax(ex.advanceTax);
+      if (ex.selfAssessment   != null) setSelfAss(ex.selfAssessment);
+
+      // Deductions — ADDITIVE (user may give 80C items piecemeal)
+      if (ex.deductions80C    != null) setD80C(prev => ex.deductions80C); // replace with total
+      if (ex.deductions80D    != null) setD80D(ex.deductions80D);
+
+      // ── Show AI reply ─────────────────────────────────────────────────────────
+      // Build confirmation card if data was extracted
+      const hasExtracted = Object.values(ex).some(v => v != null);
+
+      if (parsed.reply) {
+        // Show data summary inline as a structured card when multiple fields extracted
+        const summaryFields = [
+          ex.grossSalary        && { l: 'Salary income',         v: `₹${ex.grossSalary.toLocaleString('en-IN')}` },
+          ex.businessIncome     && { l: 'Business income',        v: `₹${ex.businessIncome.toLocaleString('en-IN')}` },
+          ex.tds                && { l: 'TDS deducted',           v: `₹${ex.tds.toLocaleString('en-IN')}` },
+          ex.advanceTax         && { l: 'Advance tax',            v: `₹${ex.advanceTax.toLocaleString('en-IN')}` },
+          ex.deductions80C      && { l: '80C deductions',         v: `₹${ex.deductions80C.toLocaleString('en-IN')}` },
+          ex.deductions80D      && { l: '80D (mediclaim)',         v: `₹${ex.deductions80D.toLocaleString('en-IN')}` },
+          ex.savingsInterest    && { l: 'Savings interest',        v: `₹${ex.savingsInterest.toLocaleString('en-IN')}` },
+          ex.fdInterest         && { l: 'FD interest',            v: `₹${ex.fdInterest.toLocaleString('en-IN')}` },
+          ex.dividendIncome     && { l: 'Dividend income',         v: `₹${ex.dividendIncome.toLocaleString('en-IN')}` },
+          ex.capitalGainStcg    && { l: 'STCG (shares)',           v: `₹${ex.capitalGainStcg.toLocaleString('en-IN')}` },
+          ex.capitalGainLtcg    && { l: 'LTCG (shares)',           v: `₹${ex.capitalGainLtcg.toLocaleString('en-IN')}` },
+          ex.homeLoanInterest   && { l: 'Home loan interest',      v: `₹${ex.homeLoanInterest.toLocaleString('en-IN')}` },
+          ex.houseRentReceived  && { l: 'House rent received',     v: `₹${ex.houseRentReceived.toLocaleString('en-IN')}` },
+        ].filter(Boolean);
+
+        addAI(
+          <>
+            <p style={{ lineHeight:1.6, marginBottom: summaryFields.length > 0 ? 10 : 0 }}>{parsed.reply}</p>
+            {summaryFields.length > 1 && (
+              <div style={{ border:'1px solid var(--border)', borderRadius:8, overflow:'hidden', fontSize:12 }}>
+                <div style={{ padding:'6px 10px', background:'var(--surface-3)', fontWeight:600, fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.05em' }}>
+                  Recorded ✓
+                </div>
+                {summaryFields.map((f, i) => (
+                  <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'6px 10px', borderTop:'1px solid var(--border)', gap:8 }}>
+                    <span style={{ color:'var(--text-secondary)' }}>{f.l}</span>
+                    <span style={{ fontWeight:600, color:'var(--brand)' }}>{f.v}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>, null
+        );
+      }
+
+      // Add AI reply to history
+      if (parsed.reply) {
+        chatHistoryRef.current = [
+          ...chatHistoryRef.current,
+          { role: 'assistant', content: parsed.reply },
+        ];
+      }
+
+      // ── Show follow-up question ─────────────────────────────────────────────
+      if (parsed.followup_question) {
+        setTimeout(() => {
+          addAI(<p style={{ lineHeight:1.6 }}>{parsed.followup_question}</p>, null);
+        }, 900);
+      }
+
+      // ── Advance step intelligently ──────────────────────────────────────────
+      if (parsed.show_computation) {
+        // We have enough data — compute and show
+        setTimeout(() => computeAndShow(), 1200);
+      } else if (parsed.next_step) {
+        // API suggests a specific next step
+        const ns = parsed.next_step;
+        if (ns === 'profile_select') {
+          setTimeout(() => {
+            setStep(S.BIZ_TYPE);
+            addAI(<p>What type of income do you primarily have?</p>, null);
+          }, 1100);
+        } else if (ns === 'ask_salary') {
+          setTimeout(() => {
+            ask(<p>What was your <strong>gross salary</strong> for FY 2025-26?</p>, 'salary');
+          }, 1100);
+        } else if (ns === 'ask_deductions') {
+          setTimeout(() => proceedToDeductions(), 1100);
+        } else if (ns === 'taxes_confirm') {
+          setTimeout(() => goToTaxesConfirm(), 1100);
+        } else if (ns === 'ready_to_compute') {
+          setTimeout(() => computeAndShow(), 1200);
+        }
+      }
+
+    } catch(e) {
+      console.error('chat error:', e);
+      addAI(
+        <p style={{ color:'var(--danger)', fontSize:13 }}>
+          Sorry, I couldn't process that right now. Please try again, or use the buttons above.
+        </p>, null
+      );
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
   // ── Compute & show ──────────────────────────────────────────────────────────
   function computeAndShow() {
     const totalInterest = savingsInterest + fdInterest;
@@ -1287,6 +1575,21 @@ export default function TaxChat({ userId }) {
       {/* Controls */}
       {!typing && !processing && (
         <div className="controls-panel">
+          {/* Structured form toggle — secondary to chat */}
+          {step !== S.DONE && step !== S.WELCOME && step !== S.AIS_UPLOAD &&
+           step !== S.COMPUTATION && !showInput && (
+            <button onClick={() => setShowStructured(s => !s)}
+              style={{ width:'100%', padding:'7px 12px', marginBottom:8, border:'1px solid var(--border)', borderRadius:'var(--radius-md)', background:'var(--surface-3)', color:'var(--text-secondary)', fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <span>{showStructured ? '▲ Hide step guide' : '▼ Show step-by-step guide instead'}</span>
+              <span style={{ fontSize:10, color:'var(--text-muted)' }}>Optional</span>
+            </button>
+          )}
+          {/* Structured controls — hidden by default, shown when toggled */}
+          {(showStructured || step === S.WELCOME || step === S.AIS_UPLOAD || step === S.COMPUTATION ||
+            step === S.AIS_CONFIRM || step === S.INCOME_CONFIRM || step === S.CG_COLLECT ||
+            step === S.CG_IMPORT || step === S.DED_80C || step === S.DED_OTHER || step === S.HP_TYPE ||
+            step === S.TAXES_CONFIRM || step === S.BIZ_TYPE || step === S.FORM16 || step === S.DONE || showInput) && (
+          <>
 
           {/* Step 0: Welcome — prev year ITR (optional) */}
           {step === S.WELCOME && !uploading && (
@@ -1486,6 +1789,58 @@ export default function TaxChat({ userId }) {
             <button onClick={handleReset} style={{ width:'100%', padding:12, border:'1px solid var(--border)', borderRadius:'var(--radius-md)', background:'var(--surface-3)', color:'var(--text-secondary)', fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
               <RotateCcw size={14}/> Start a new return
             </button>
+          )}
+          </>
+          )}
+
+          {/* ── Free-text chat — PRIMARY input, always shown first ── */}
+          {step !== S.DONE && (
+            <div style={{ borderRadius: 'var(--radius-md)', border: '1.5px solid var(--brand)', background: 'var(--surface)', overflow: 'hidden' }}>
+              {/* Main text input row */}
+              <div style={{ display:'flex', alignItems:'center', gap:0 }}>
+                <div style={{ flex:1, display:'flex', alignItems:'center', gap:8, padding:'0 14px', minWidth:0 }}>
+                  <input
+                    value={freeText}
+                    onChange={e => setFreeText(e.target.value)}
+                    onKeyDown={e => e.key==='Enter' && !e.shiftKey && freeText.trim() && handleFreeChat()}
+                    placeholder={
+                      lang === 'hi' ? 'यहाँ लिखें — salary, TDS, FD interest, 80C सब एक साथ लिख सकते हैं...' :
+                      lang === 'gu' ? 'અહીં લખો — salary, TDS, FD interest, 80C બધું એકસાથે...' :
+                      'Type anything — salary, TDS, deductions, capital gains all at once...'
+                    }
+                    style={{ flex:1, fontSize:15, padding:'14px 0', background:'transparent', color:'var(--text-primary)', border:'none', outline:'none', minWidth:0 }}
+                  />
+                  {chatLoading && <Loader size={14} style={{ animation:'spin 1s linear infinite', color:'var(--brand)', flexShrink:0 }}/>}
+                </div>
+                <button
+                  onClick={handleFreeChat}
+                  disabled={!freeText.trim() || chatLoading}
+                  style={{ padding:'14px 16px', background: freeText.trim() ? 'var(--brand)' : 'var(--surface-3)', color: freeText.trim() ? '#fff' : 'var(--text-muted)', border:'none', borderLeft:'1px solid var(--border)', cursor: freeText.trim() ? 'pointer' : 'not-allowed', flexShrink:0, display:'flex', alignItems:'center', gap:6, fontSize:13, fontWeight:500, transition:'background 0.15s' }}>
+                  <Send size={15}/>
+                  <span style={{ display: 'none' }}>Send</span>
+                </button>
+              </div>
+              {/* Hint bar */}
+              <div style={{ padding:'5px 14px 7px', background:'var(--brand-light)', borderTop:'1px solid var(--brand)', display:'flex', gap:12, flexWrap:'wrap', overflowX:'hidden' }}>
+                <span style={{ fontSize:10, color:'var(--brand)', fontWeight:500 }}>
+                  {lang === 'hi' ? '💡 उदाहरण:' : lang === 'gu' ? '💡 ઉદાહરણ:' : '💡 Examples:'}
+                </span>
+                {[
+                  lang === 'hi' ? '"salary 8 lakh, TDS 50000, PPF 1.5 lakh"' :
+                  lang === 'gu' ? '"salary 8 lakh, TDS 50000, PPF 1.5 lakh"' :
+                  '"salary 8 lakh, TDS 50K, PPF 1.5L"',
+
+                  lang === 'hi' ? '"FD interest 45000, mediclaim 20000"' :
+                  lang === 'gu' ? '"FD interest 45000, mediclaim 20000"' :
+                  '"FD interest 45K, mediclaim 20K"',
+                ].map((e, i) => (
+                  <button key={i} onClick={() => { setFreeText(e.replace(/"/g,'')); }}
+                    style={{ fontSize:10, color:'var(--brand)', background:'none', border:'none', cursor:'pointer', padding:0, textDecoration:'underline' }}>
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}
