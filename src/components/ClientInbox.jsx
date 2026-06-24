@@ -89,7 +89,7 @@ function ReturnThread({ returnId, userId, caName, onUnreadChange }) {
   if (loading) return <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}><Loader size={14} style={{ animation: 'spin 1s linear infinite' }}/> Loading...</div>;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 380 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 320 }}>
       {/* Messages */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '10px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {messages.length === 0 && (
@@ -102,7 +102,7 @@ function ReturnThread({ returnId, userId, caName, onUnreadChange }) {
           const sender = isMe ? 'You' : (m.from_profile?.full_name || caName || 'CA team');
           return (
             <div key={m.id} style={{ display: 'flex', justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
-              <div style={{ maxWidth: '80%' }}>
+              <div style={{ maxWidth: '82%', minWidth: 0 }}>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2, textAlign: isMe ? 'right' : 'left' }}>{sender}</div>
                 <div style={{
                   background: isMe ? 'var(--brand)' : 'var(--surface-3)',
@@ -135,7 +135,7 @@ function ReturnThread({ returnId, userId, caName, onUnreadChange }) {
           value={reply} onChange={e => setReply(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && reply.trim() && handleSend()}
           placeholder="Type a message..."
-          style={{ flex: 1, padding: '8px 12px', border: '1.5px solid var(--border-strong)', borderRadius: 8, fontSize: 13, outline: 'none', background: 'var(--surface)', color: 'var(--text-primary)' }}
+          style={{ flex: 1, padding: '10px 12px', border: '1.5px solid var(--border-strong)', borderRadius: 8, fontSize: 16, outline: 'none', background: 'var(--surface)', color: 'var(--text-primary)', minWidth: 0 }}
         />
         <Button variant="primary" onClick={handleSend} disabled={sending || !reply.trim()}>
           {sending ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }}/> : <Send size={13}/>}
@@ -188,7 +188,7 @@ function ReturnCard({ ret, userId, caName, onDelete }) {
         <div style={{ marginTop: 14 }}>
           {/* Tax summary */}
           {comp && Object.keys(comp).length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 12, minWidth: 0 }}>
               {[
                 { l: 'Gross income',    v: formatINR(comp.grossTotal || 0) },
                 { l: 'Tax payable',     v: formatINR(comp.chosenTax  || 0) },
@@ -247,7 +247,7 @@ export default function ClientInbox({ userId }) {
   useEffect(() => { load(); }, [userId]);
 
   return (
-    <div style={{ maxWidth: 720, margin: '0 auto', padding: '24px 16px' }}>
+    <div style={{ maxWidth: 720, margin: '0 auto', padding: '16px 14px' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       <div style={{ marginBottom: 20 }}>

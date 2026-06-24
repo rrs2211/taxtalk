@@ -326,7 +326,7 @@ function ClientCard({ entry, caUserId, onRefresh }) {
     <>
       {showModal && <ClientDetailModal profile={profile} ret={ret} kycData={kycData} onSave={handleGenerateJson} onClose={()=>setShowModal(false)} />}
       <Card style={{ marginBottom:10, border:expanded?'1px solid var(--brand)':'1px solid var(--border)', transition:'border-color 0.2s' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12, cursor:'pointer' }} onClick={()=>setExpanded(e=>!e)}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer', minWidth:0, overflow:'hidden' }} onClick={()=>setExpanded(e=>!e)}>
           <Avatar initials={(profile?.full_name||profile?.email||'U').substring(0,2).toUpperCase()} size={40} />
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontWeight:600, fontSize:14 }}>{profile?.full_name||profile?.email||'Client'}</div>
@@ -412,7 +412,7 @@ function ClientCard({ entry, caUserId, onRefresh }) {
             {queried&&<div style={{ display:'flex', gap:6, color:'var(--success)', fontSize:13, marginBottom:10 }}><CheckCircle size={14}/> Query sent to client</div>}
 
             {/* Actions */}
-            <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:10 }}>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:10 }}>
               {status!=='filed'&&status==='submitted'&&critCount===0&&<Button variant="success" onClick={handleApprove} disabled={saving}><CheckCircle size={15}/> Approve</Button>}
               <Button variant="secondary" onClick={()=>setShowEditor(e=>!e)}>✏️ {showEditor?'Close editor':'Edit return'}</Button>
               {status!=='filed'&&critCount===0&&(status==='approved'||status==='submitted')&&(
@@ -532,12 +532,12 @@ function UsersPanel() {
       {loading ? <div style={{ textAlign:'center', padding:20, color:'var(--text-muted)' }}><Loader size={16} style={{ animation:'spin 1s linear infinite' }}/></div>
         : filtered.length===0 ? <div style={{ textAlign:'center', padding:20, color:'var(--text-muted)', fontSize:14 }}>No users found</div>
         : (
-          <div style={{ border:'1px solid var(--border)', borderRadius:'var(--radius-md)', overflow:'hidden' }}>
-            <div style={{ display:'grid', gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr', padding:'8px 12px', background:'var(--surface-3)', fontSize:11, fontWeight:600, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.04em', gap:8 }}>
+          <div style={{ border:'1px solid var(--border)', borderRadius:'var(--radius-md)', overflow:'hidden', overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr', padding:'8px 12px', background:'var(--surface-3)', fontSize:10, fontWeight:600, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.04em', gap:6, minWidth:500 }}>
               <span>Name / Email</span><span>PAN</span><span>City</span><span>KYC</span><span>Last seen</span>
             </div>
             {filtered.map((u,i) => (
-              <div key={u.id} style={{ display:'grid', gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr', padding:'10px 12px', borderTop:'1px solid var(--border)', fontSize:13, gap:8, background:i%2===0?'var(--surface)':'var(--surface-2)', alignItems:'center' }}>
+              <div key={u.id} style={{ display:'grid', gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr', padding:'10px 12px', borderTop:'1px solid var(--border)', fontSize:12, gap:6, background:i%2===0?'var(--surface)':'var(--surface-2)', alignItems:'center', minWidth:500 }}>
                 <div>
                   <div style={{ fontWeight:500 }}>{u.full_name||'—'}</div>
                   <div style={{ fontSize:11, color:'var(--text-muted)' }}>{u.email}</div>
@@ -601,9 +601,9 @@ function MessageCenter({ caUserId }) {
   const selThread = selected ? threads.find(t=>t.key===selected.key) : null;
 
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'300px 1fr', gap:14, height:500 }}>
+    <div style={{ display:'flex', flexDirection:'column', gap:14, height:'100%', minHeight:400 }}>
       {/* Thread list */}
-      <div style={{ border:'1px solid var(--border)', borderRadius:'var(--radius-md)', overflow:'auto' }}>
+      <div style={{ border:'1px solid var(--border)', borderRadius:'var(--radius-md)', overflow:'auto', maxHeight:200 }}>
         {threads.length===0
           ? <div style={{ textAlign:'center', padding:20, color:'var(--text-muted)', fontSize:13 }}>No messages yet</div>
           : threads.map(t => {
@@ -708,7 +708,7 @@ export default function CADashboard({ caUserId }) {
   ];
 
   return (
-    <div style={{ maxWidth:800, margin:'0 auto', padding:'24px 16px' }}>
+    <div style={{ maxWidth:800, margin:'0 auto', padding:'16px 14px' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
         <div>
@@ -720,14 +720,14 @@ export default function CADashboard({ caUserId }) {
         </button>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:20 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:8, marginBottom:16 }}>
         <StatCard label="Pending review" value={pending}  color="var(--warn)"/>
         <StatCard label="Flagged"        value={flagged}  color="var(--danger)"/>
         <StatCard label="Approved"       value={approved} color="var(--success)"/>
         <StatCard label="Total in queue" value={queue.length}/>
       </div>
 
-      <div style={{ display:'flex', borderBottom:'1px solid var(--border)', marginBottom:20 }}>
+      <div style={{ display:'flex', borderBottom:'1px solid var(--border)', marginBottom:16, overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
         {TABS.map(t => (
           <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:'10px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:13, fontWeight:tab===t.id?600:400, color:tab===t.id?'var(--brand)':'var(--text-secondary)', borderBottom:`2px solid ${tab===t.id?'var(--brand)':'transparent'}` }}>
             {t.label}

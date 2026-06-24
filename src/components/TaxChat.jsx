@@ -46,22 +46,22 @@ function TypingDots() {
 }
 function AIBubble({ children }) {
   return (
-    <div style={{ display:'flex', gap:10, alignItems:'flex-end', maxWidth:'84%' }}>
-      <div style={{ width:32, height:32, borderRadius:'50%', flexShrink:0, background:'linear-gradient(135deg,#1a56e8,#7c3aed)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#fff' }}>T</div>
-      <div style={{ background:'var(--surface-3)', borderRadius:'18px 18px 18px 4px', padding:'12px 16px', fontSize:14, lineHeight:1.6, color:'var(--text-primary)', border:'1px solid var(--border)', animation:'fadeUp 0.3s ease' }}>{children}</div>
+    <div style={{ display:'flex', gap:10, alignItems:'flex-end', maxWidth:'88%' }}>
+      <div style={{ width:30, height:30, borderRadius:'50%', flexShrink:0, background:'linear-gradient(135deg,#1a56e8,#7c3aed)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#fff' }}>T</div>
+      <div className="bubble-ai" style={{ animation:'fadeUp 0.3s ease' }}>{children}</div>
     </div>
   );
 }
 function UserBubble({ children }) {
   return (
     <div style={{ display:'flex', justifyContent:'flex-end' }}>
-      <div style={{ background:'var(--brand)', borderRadius:'18px 18px 4px 18px', padding:'10px 16px', fontSize:14, color:'#fff', maxWidth:'75%', animation:'fadeUp 0.2s ease', lineHeight:1.5 }}>{children}</div>
+      <div className="bubble-user" style={{ animation:'fadeUp 0.2s ease', lineHeight:1.5 }}>{children}</div>
     </div>
   );
 }
 function Chip({ label, selected, onClick }) {
   return (
-    <button onClick={onClick} style={{ padding:'8px 16px', borderRadius:24, border:`1.5px solid ${selected?'var(--brand)':'var(--border-strong)'}`, background:selected?'var(--brand-light)':'var(--surface)', color:selected?'var(--brand)':'var(--text-primary)', fontSize:13, fontWeight:selected?600:400, cursor:'pointer', transition:'all 0.15s' }}>
+    <button onClick={onClick} className={`chip${selected?' active':''}`} style={{ fontSize:13 }}>
       {label}
     </button>
   );
@@ -71,11 +71,10 @@ function UploadBtn({ label, subLabel, onFile, uploading, progress, accept='.pdf,
   return (
     <div>
       <input ref={ref} type="file" accept={accept} style={{ display:'none' }} onChange={e => { if (e.target.files[0]) onFile(e.target.files[0]); }} />
-      <button onClick={() => ref.current.click()} disabled={uploading}
-        style={{ width:'100%', padding:'16px 14px', borderRadius:'var(--radius-md)', border:'2px dashed var(--brand)', background:'var(--brand-light)', color:'var(--brand)', fontSize:14, fontWeight:500, cursor:uploading?'wait':'pointer', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4 }}>
+      <button onClick={() => ref.current.click()} disabled={uploading} className="upload-btn">
         {uploading
-          ? <><Loader size={18} style={{ animation:'spin 1s linear infinite' }} /><span>Reading document... {progress>0?`${progress}%`:''}</span></>
-          : <><Upload size={20}/><span>{label}</span>{subLabel && <span style={{ fontSize:12, opacity:0.75, fontWeight:400 }}>{subLabel}</span>}</>
+          ? <><Loader size={20} style={{ animation:'spin 1s linear infinite' }} /><span>Reading... {progress>0?`${progress}%`:''}</span></>
+          : <><Upload size={22}/><span>{label}</span>{subLabel && <span style={{ fontSize:12, opacity:0.75, fontWeight:400 }}>{subLabel}</span>}</>
         }
       </button>
     </div>
@@ -1107,21 +1106,21 @@ export default function TaxChat({ userId }) {
   const itrBadge = taxProfile === 'salaried' ? 'ITR-1' : taxProfile === 'business' || taxProfile === 'freelancer' ? 'ITR-4' : taxProfile === 'partner' ? 'ITR-3' : 'ITR';
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'var(--surface-2)' }}>
-      <style>{`@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'var(--surface-2)', overflow:'hidden' }}>
 
-      {/* Header */}
-      <div style={{ background:'var(--surface)', borderBottom:'1px solid var(--border)', padding:'12px 20px', display:'flex', alignItems:'center', gap:12, boxShadow:'var(--shadow-sm)', flexShrink:0 }}>
-        <div style={{ width:36, height:36, borderRadius:'50%', background:'linear-gradient(135deg,#1a56e8,#7c3aed)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:700, color:'#fff' }}>T</div>
-        <div>
-          <div style={{ fontWeight:600, fontSize:14 }}>TaxTalk</div>
-          <div style={{ fontSize:12, color:'var(--success)', display:'flex', alignItems:'center', gap:4 }}><div style={{ width:6, height:6, borderRadius:'50%', background:'var(--success)' }}/> RB Shah & Associates · AY 2026-27</div>
+      {/* Sub-header in chat */}
+      <div style={{ background:'var(--surface)', borderBottom:'1px solid var(--border)', padding:'8px 14px', display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:12, color:'var(--success)', display:'flex', alignItems:'center', gap:4 }}>
+            <div style={{ width:6, height:6, borderRadius:'50%', background:'var(--success)', flexShrink:0 }}/>
+            <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>RB Shah & Associates · AY 2026-27</span>
+          </div>
         </div>
-        <div style={{ marginLeft:'auto' }}><Badge variant="info"><FileText size={11}/> {itrBadge}</Badge></div>
+        <Badge variant="info"><FileText size={11}/> {itrBadge}</Badge>
       </div>
 
       {/* Messages */}
-      <div style={{ flex:1, overflowY:'auto', padding:'20px 16px', display:'flex', flexDirection:'column', gap:16 }}>
+      <div className="chat-wrap" style={{ flex:1, gap:14 }}>
         {messages.map(m => m.from==='ai' ? <AIBubble key={m.key}>{m.content}</AIBubble> : <UserBubble key={m.key}>{m.content}</UserBubble>)}
         {typing    && <div style={{ display:'flex', gap:10, alignItems:'flex-end' }}><div style={{ width:32, height:32, borderRadius:'50%', background:'linear-gradient(135deg,#1a56e8,#7c3aed)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#fff', flexShrink:0 }}>T</div><TypingDots/></div>}
         {processing && <ProcessBubble msg={processing}/>}
@@ -1130,7 +1129,7 @@ export default function TaxChat({ userId }) {
 
       {/* Controls */}
       {!typing && !processing && (
-        <div style={{ background:'var(--surface)', borderTop:'1px solid var(--border)', padding:16, flexShrink:0 }}>
+        <div className="controls-panel">
 
           {/* Step 1: AIS upload */}
           {step === S.AIS_UPLOAD && (
@@ -1231,7 +1230,7 @@ export default function TaxChat({ userId }) {
           {/* Deductions — 80C */}
           {step === S.DED_80C && (
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:8, overflowX:'hidden' }}>
                 {DEDUCTION_OPTIONS.map(o => <Chip key={o.id} label={o.label} selected={sel80C.includes(o.id)} onClick={() => toggle80C(o.id)}/>)}
               </div>
               <Button variant="primary" onClick={confirm80C} disabled={sel80C.length===0} style={{ alignSelf:'flex-end' }}>Continue <ChevronRight size={15}/></Button>
@@ -1241,7 +1240,7 @@ export default function TaxChat({ userId }) {
           {/* Deductions — other */}
           {step === S.DED_OTHER && (
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-              <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:8, overflowX:'hidden' }}>
                 {OTHER_DED_OPTIONS.map(o => <Chip key={o.id} label={o.label} selected={selOther.includes(o.id)} onClick={() => toggleOtherDed(o.id)}/>)}
               </div>
               <Button variant="primary" onClick={confirmOtherDed} disabled={selOther.length===0} style={{ alignSelf:'flex-end' }}>Continue <ChevronRight size={15}/></Button>
@@ -1274,19 +1273,20 @@ export default function TaxChat({ userId }) {
           {/* Amount / text input */}
           {showInput && (
             <div style={{ display:'flex', gap:8 }}>
-              <div style={{ flex:1, border:'1.5px solid var(--border-strong)', borderRadius:'var(--radius-md)', padding:'0 14px', display:'flex', alignItems:'center', gap:8, background:'var(--surface)' }}>
-                {!isTextInput && <span style={{ fontWeight:600, color:'var(--text-muted)' }}>₹</span>}
+              <div style={{ flex:1, border:'1.5px solid var(--border-strong)', borderRadius:'var(--radius-md)', padding:'0 14px', display:'flex', alignItems:'center', gap:8, background:'var(--surface)', minWidth:0 }}>
+                {!isTextInput && <span style={{ fontWeight:600, color:'var(--text-muted)', flexShrink:0 }}>₹</span>}
                 <input
                   type={isTextInput ? 'text' : 'number'}
-                  placeholder={isTextInput ? 'Enter name / text' : 'Enter amount'}
+                  inputMode={isTextInput ? 'text' : 'numeric'}
+                  placeholder={isTextInput ? 'Enter text' : 'Enter amount'}
                   value={inputValue}
                   onChange={e => setInputVal(e.target.value)}
                   onKeyDown={e => e.key==='Enter' && inputValue && handleAmount()}
                   autoFocus
-                  style={{ flex:1, fontSize:15, padding:'12px 0', background:'transparent', color:'var(--text-primary)', border:'none', outline:'none' }}
+                  style={{ flex:1, fontSize:16, padding:'13px 0', background:'transparent', color:'var(--text-primary)', border:'none', outline:'none', minWidth:0 }}
                 />
               </div>
-              <Button variant="primary" onClick={handleAmount} disabled={!inputValue}><Send size={15}/></Button>
+              <button onClick={handleAmount} disabled={!inputValue} className="btn btn-primary" style={{ flexShrink:0, minWidth:52 }}><Send size={16}/></button>
             </div>
           )}
 

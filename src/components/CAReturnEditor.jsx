@@ -202,7 +202,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
   const STATES = [['01','J&K'],['02','Himachal Pradesh'],['03','Punjab'],['04','Chandigarh'],['05','Uttarakhand'],['06','Haryana'],['07','Delhi'],['08','Rajasthan'],['09','UP'],['10','Bihar'],['19','West Bengal'],['20','Jharkhand'],['21','Odisha'],['22','Chhattisgarh'],['23','MP'],['24','Gujarat'],['27','Maharashtra'],['28','AP'],['29','Karnataka'],['30','Goa'],['32','Kerala'],['33','Tamil Nadu'],['36','Telangana']];
 
   return (
-    <div style={{ maxHeight: '85vh', overflowY: 'auto', padding: '2px' }}>
+    <div style={{ maxHeight: '80dvh', overflowY: 'auto', overflowX: 'hidden', padding: '2px', WebkitOverflowScrolling: 'touch' }}>
 
       {/* Live tax summary */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16, padding: '12px', background: 'var(--surface-2)', borderRadius: 8 }}>
@@ -238,7 +238,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
 
       {/* ── Salary income ── */}
       <SEC t="Salary income" />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
         <NumField label="Gross salary" value={grossSalary} onChange={setGrossSalary} />
         <NumField label="Standard deduction" value={stdDed} onChange={setStdDed} note="(16ia)" max={75000} />
         <NumField label="Professional tax" value={profTax} onChange={setProfTax} note="(16iii)" max={2500} />
@@ -250,7 +250,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
 
       {/* ── Business income ── */}
       <SEC t="Business / professional income (Sec 44AD / 44ADA)" />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
         <NumField label={`Gross ${is44ADA ? 'professional receipts' : 'business turnover'}`} value={bizTurnover} onChange={setBizTurnover} />
         <NumField label="Cash receipts %" value={bizCashPct} onChange={v => setBizCashPct(Math.min(100, Math.max(0, v)))} note="(0–100)" max={100} />
         <NumField label="Presumptive income" value={businessIncome} onChange={setBizIncome} note="(auto or override)" />
@@ -276,7 +276,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
 
       {/* ── Other source income ── */}
       <SEC t="Other source income (Schedule OS)" />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
         <NumField label="Savings bank interest" value={savingsInt} onChange={setSavingsInt} note="(80TTA max ₹10K)" />
         <NumField label="FD / RD / term deposit interest" value={fdInt} onChange={setFdInt} />
         <NumField label="Dividends" value={dividendIncome} onChange={setDividend} />
@@ -290,7 +290,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
         <label htmlFor="hp-chk" style={{ fontSize: 13, cursor: 'pointer' }}>Has house property income or home loan</label>
       </div>
       {hpEnabled && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
           <SelField label="Property type" value={hpType} onChange={setHpType} options={[['Self Occupied','Self Occupied'],['Rented','Rented / let out']]} />
           {hpType === 'Rented' && <>
             <NumField label="Annual rent received" value={hpRent} onChange={setHpRent} />
@@ -307,7 +307,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
         <label htmlFor="cg-chk" style={{ fontSize: 13, cursor: 'pointer' }}>Has capital gains transactions</label>
       </div>
       {cgEnabled && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
           <NumField label="STCG — Equity / equity MF (Sec 111A @ 20%)" value={stcg111a} onChange={setStcg111a} />
           <NumField label="LTCG — Equity / equity MF (Sec 112A @ 12.5%)" value={ltcg112a} onChange={setLtcg112a} note="₹1.25L exempt" />
           <NumField label="LTCG — Property / land (@ 12.5%)" value={ltcgProp} onChange={setLtcgProp} />
@@ -316,7 +316,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
 
       {/* ── Deductions ── */}
       <SEC t="Deductions — Chapter VI-A (old regime only)" />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
         <NumField label="Section 80C (PPF, LIC, ELSS, home loan principal)" value={d80C} onChange={setD80C} max={150000} />
         <NumField label="Section 80D (mediclaim premium)" value={d80D} onChange={setD80D} max={75000} />
         {!hpEnabled && <NumField label="Home loan interest — Sec 24(b)" value={d24b} onChange={setD24b} max={200000} />}
@@ -330,7 +330,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
 
       {/* ── Taxes paid ── */}
       <SEC t="Taxes already paid" />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
         <NumField label="TDS deducted (salary + professional)" value={tds} onChange={setTds} />
         <NumField label="Advance tax paid" value={advanceTax} onChange={setAdvanceTax} />
         <NumField label="Self-assessment tax paid" value={selfAssess} onChange={setSelfAssess} />
@@ -342,7 +342,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
       {errors.bank && <div style={{ padding: '8px 12px', background: 'var(--danger-light)', color: 'var(--danger)', borderRadius: 8, fontSize: 13, marginBottom: 10 }}>⚠️ {errors.bank}</div>}
       {bankAccounts.map((b, i) => (
         <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
             <TxtField label="Account number *" value={b.BankAccountNo} onChange={v => setBankAccounts(bs => bs.map((x,j)=>j===i?{...x,BankAccountNo:v}:x))} placeholder="Account number" />
             <TxtField label="IFSC code *" value={b.IFSCCode} onChange={v => setBankAccounts(bs => bs.map((x,j)=>j===i?{...x,IFSCCode:v.toUpperCase()}:x))} placeholder="SBIN0001234" upper />
             <TxtField label="Bank name" value={b.BankName} onChange={v => setBankAccounts(bs => bs.map((x,j)=>j===i?{...x,BankName:v}:x))} placeholder="SBI" />
@@ -365,7 +365,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
         <>
           <SEC t="Financial particulars of business (FinanclPartclrOfBusiness — ITR-4)" />
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Required for ITR-4. Approximate figures acceptable for presumptive filers.</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
             <NumField label="Own capital / net worth" value={bsCapital} onChange={setBsCapital} />
             <NumField label="Balance in banks (all accounts)" value={bsBank} onChange={setBsBank} />
             <NumField label="Cash in hand" value={bsCash} onChange={setBsCash} />

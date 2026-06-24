@@ -43,8 +43,8 @@ export default function ProfileSettings({ user, profile, onUpdate, onClose }) {
   const lbl = { fontSize:13, fontWeight:600, color:'var(--text-secondary)', display:'block', marginBottom:5 };
 
   return (
-    <div style={{ minHeight:'100vh', background:'var(--surface-2)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-      <div style={{ background:'var(--surface)', borderRadius:'var(--radius-lg)', padding:28, width:'100%', maxWidth:440, boxShadow:'var(--shadow-md)' }}>
+    <div style={{ minHeight:'100dvh', background:'var(--surface-2)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'16px', paddingTop:'env(safe-area-inset-top,16px)', overflowY:'auto' }}>
+      <div style={{ background:'var(--surface)', borderRadius:'var(--radius-lg)', padding:'24px 18px', width:'100%', maxWidth:440, boxShadow:'var(--shadow-md)', marginTop:'auto', marginBottom:'auto' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
           <div style={{ fontWeight:700, fontSize:18 }}>My Account</div>
           <button onClick={onClose} style={{ padding:'6px 12px', border:'1px solid var(--border)', borderRadius:'var(--radius-md)', background:'transparent', color:'var(--text-secondary)', fontSize:13, cursor:'pointer' }}>← Back</button>

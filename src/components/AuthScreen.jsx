@@ -71,7 +71,7 @@ export default function AuthScreen({ onAuth }) {
         <input
           type="email" required autoComplete="email" value={email}
           onChange={e => setEmail(e.target.value)} placeholder="you@example.com"
-          style={{ flex:1, height:46, padding:'0 14px', fontSize:14, border:'none', outline:'none', background:'transparent', color:'#0f172a' }}
+          style={{ flex:1, height:48, padding:'0 14px', fontSize:16, border:'none', outline:'none', background:'transparent', color:'#0f172a' }}
         />
       </div>
     </div>
@@ -86,7 +86,7 @@ export default function AuthScreen({ onAuth }) {
           type={showPass ? 'text' : 'password'} required
           autoComplete={stage === STAGE.LOGIN ? 'current-password' : 'new-password'}
           value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••"
-          style={{ flex:1, height:46, padding:'0 14px', fontSize:14, border:'none', outline:'none', background:'transparent', color:'#0f172a' }}
+          style={{ flex:1, height:48, padding:'0 14px', fontSize:16, border:'none', outline:'none', background:'transparent', color:'#0f172a' }}
         />
         <button type="button" onClick={() => setShowPass(s => !s)}
           style={{ padding:'0 14px', background:'none', border:'none', cursor:'pointer', color:'#94a3b8' }}>

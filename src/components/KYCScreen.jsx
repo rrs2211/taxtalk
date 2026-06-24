@@ -85,8 +85,8 @@ export default function KYCScreen({ userId, existingProfile, onComplete }) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', padding: 32, width: '100%', maxWidth: 520, boxShadow: 'var(--shadow-md)' }}>
+    <div style={{ minHeight: '100dvh', background: 'var(--surface-2)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '20px 16px', paddingTop: 'calc(20px + env(safe-area-inset-top))', paddingBottom: 'calc(20px + env(safe-area-inset-bottom))', overflowY: 'auto' }}>
+      <div style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', padding: '24px 20px', width: '100%', maxWidth: 520, boxShadow: 'var(--shadow-md)', marginTop: 'auto', marginBottom: 'auto' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
@@ -109,7 +109,7 @@ export default function KYCScreen({ userId, existingProfile, onComplete }) {
           {/* Section: Personal */}
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Personal information</div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
             <Field label="Full name (as per PAN) *" error={errors.fullName}>
               <input
                 style={errors.fullName ? INP_ERR_STYLE : INP_STYLE}
@@ -129,7 +129,7 @@ export default function KYCScreen({ userId, existingProfile, onComplete }) {
             </Field>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
             <Field label="Date of birth *" error={errors.dob}>
               <input
                 type="date"
@@ -173,7 +173,7 @@ export default function KYCScreen({ userId, existingProfile, onComplete }) {
             />
           </Field>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
             <Field label="City">
               <input
                 style={INP_STYLE}
