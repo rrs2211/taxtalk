@@ -18,6 +18,9 @@ import { supabase, getMyReturnsWithDocs, getMyDocuments, deleteDocument,
   clientUpdateComputation, addChallan, deleteChallan, getChallans,
   sendMessage, markMessagesRead, deleteReturn } from '../lib/supabase.js';
 import { uploadDocument, validateFile, getDocumentUrl } from '../lib/storage.js';
+import HintPanel, { HintSummaryBar } from './HintPanel.jsx';
+import { checkReturnCompleteness, hintsFor } from '../lib/completenessCheck.js';
+import { determineITRForm } from '../lib/itrJson.js';
 import { computeTax, formatINR, formatINRShort } from '../data/flow.js';
 import CGCollector from './CGCollector.jsx';
 import { Card, Badge, Button } from './UI.jsx';
@@ -786,6 +789,24 @@ function ReturnCard({ ret, userId, onDelete, onUpdate, lang = 'en' }) {
               ))}
             </div>
           )}
+
+          {/* Client-facing hints — only shown for in_progress/submitted/queried returns */}
+          {!ret.acknowledgement_no && Object.keys(computation).length > 0 && (() => {
+            const itrF = ret.itr_form || 'ITR-1';
+            const { hints: cHints } = checkReturnCompleteness(
+              { ...computation, bankAccounts: computation?.bankAccounts || [], betterRegime: computation?.betterRegime || 'new' },
+              {},   // client doesn't have KYC data here — CA checked separately
+              itrF,
+              computation?.challans || [],
+              []
+            );
+            const clientHints = hintsFor(cHints, 'client');
+            return clientHints.length > 0 ? (
+              <div style={{ marginBottom: 12 }}>
+                <HintPanel hints={clientHints} score={null} audience="client" collapsible={true} defaultOpen={true} />
+              </div>
+            ) : null;
+          })()}
 
           {/* Filed acknowledgment */}
           {ret.acknowledgement_no && (

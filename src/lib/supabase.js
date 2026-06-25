@@ -667,3 +667,75 @@ export async function save80DEntry(returnId, userId, entry) {
   if (error) throw error;
   return data;
 }
+
+// ─── Capital gain transactions (Schedule 112A row-level) ──────────────────────
+export async function getCGTransactions(returnId) {
+  const { data, error } = await supabase.from('capital_gain_txns')
+    .select('*').eq('return_id', returnId).order('created_at', { ascending: true });
+  if (error) { console.warn('cg_txns fetch error:', error.message); return []; }
+  return data || [];
+}
+
+export async function saveCGTransaction(returnId, userId, txn) {
+  // Rule 84: auto-compute TotalSaleValue = qty * salePrice
+  const totalSaleValue = Math.round((txn.qty || 1) * (txn.sale_price_unit || 0));
+  // Rule 85: CostWithoutIndex = max(purchaseCost, min(TotalSaleValue, TotalFMV))
+  const totalFMV = Math.round((txn.qty || 1) * (txn.fmv_per_unit || 0));
+  const col9 = txn.acquired_before_2018 ? Math.min(totalSaleValue, totalFMV) : 0;
+  const costWithoutIndex = Math.max(txn.purchase_cost || 0, col9);
+  // Rule 89: Balance = TotalSaleValue - (costWithoutIndex + expenses)
+  const gain = Math.max(0, totalSaleValue - costWithoutIndex - (txn.expenses || 0) - (txn.cost_improvement || 0));
+
+  const { data, error } = await supabase.from('capital_gain_txns').insert({
+    return_id: returnId, user_id: userId,
+    ...txn,
+    total_sale_value:  totalSaleValue,
+    total_fmv:         totalFMV,
+    gain:              gain,
+  }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteCGTransaction(id) {
+  const { error } = await supabase.from('capital_gain_txns').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ─── Brought-forward losses ───────────────────────────────────────────────────
+export async function getBFLosses(returnId) {
+  const { data, error } = await supabase.from('bf_losses')
+    .select('*').eq('return_id', returnId).order('assessment_year', { ascending: true });
+  if (error) { console.warn('bf_losses fetch:', error.message); return []; }
+  return data || [];
+}
+
+export async function saveBFLoss(returnId, userId, loss) {
+  const { data, error } = await supabase.from('bf_losses')
+    .insert({ return_id: returnId, user_id: userId, ...loss }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+// ─── Foreign income ───────────────────────────────────────────────────────────
+export async function getForeignIncome(returnId) {
+  const { data, error } = await supabase.from('foreign_income')
+    .select('*').eq('return_id', returnId).order('created_at', { ascending: true });
+  if (error) { console.warn('foreign_income fetch:', error.message); return []; }
+  return data || [];
+}
+
+export async function saveForeignIncome(returnId, userId, entry) {
+  const { data, error } = await supabase.from('foreign_income')
+    .insert({ return_id: returnId, user_id: userId, ...entry }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+// ─── Assets and liabilities (Schedule AL) ────────────────────────────────────
+export async function getAssetsLiabilities(returnId) {
+  const { data, error } = await supabase.from('assets_liabilities')
+    .select('*').eq('return_id', returnId);
+  if (error) { console.warn('al fetch:', error.message); return []; }
+  return data || [];
+}

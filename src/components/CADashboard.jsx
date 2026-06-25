@@ -5,6 +5,8 @@ import { formatINR } from '../data/flow.js';
 import { supabase, approveReturn, sendCAQuery, getAllUsers, getAllCAQueries, getReturnDocuments, deleteReturnAsCA, sendMessage, getReturnMessages } from '../lib/supabase.js';
 import CAReturnEditor from './CAReturnEditor.jsx';
 import { determineITRForm, generateITRJson, downloadITRJson } from '../lib/itrJson.js';
+import HintPanel, { HintSummaryBar } from './HintPanel.jsx';
+import { checkReturnCompleteness, hintsFor } from '../lib/completenessCheck.js';
 import { uploadDocument, validateFile } from '../lib/storage.js';
 
 const STATUS_CFG = {
@@ -278,6 +280,24 @@ function ClientCard({ entry, caUserId, onRefresh }) {
   const critCount= flags.filter(f=>f.severity==='critical').length;
   const warnCount= flags.filter(f=>f.severity==='warn').length;
   const itrForm  = determineITRForm(ret?.profile, comp);
+
+  // Completeness check — runs live as CA reviews the return
+  const { hints: allHints, score: cScore } = checkReturnCompleteness(
+    { ...comp, bankAccounts: comp?.bankAccounts || [], betterRegime: comp?.betterRegime || 'new',
+      cap80C: comp?.cap80C, cap80CCD1: comp?.cap80CCD1, cap80D: comp?.cap80D,
+      cap80TTA: comp?.cap80TTA, cap80TTB: comp?.cap80TTB, cap80G: comp?.cap80G,
+      deductions80D: comp?.deductions80D, deductions80G: comp?.deductions80G, deductions80C: comp?.deductions80C,
+      houseProperty: comp?.houseProperty, capitalGains: comp?.capitalGains,
+      schedule80DData: comp?.schedule80DData, schedule80GData: comp?.schedule80GData,
+      tdsNonSalary: comp?.tdsNonSalary || 0, challans: comp?.challans || [],
+      employerTAN: comp?.employerTAN, employerName: comp?.employerName,
+    },
+    profile || {},
+    itrForm,
+    comp?.challans || [],
+    []
+  );
+  const caHints = hintsFor(allHints, 'ca');
   const taxableIncome = comp?.betterRegime==='old' ? comp?.oldTaxable : comp?.newTaxable;
 
   // Load client KYC when expanding

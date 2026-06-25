@@ -8,6 +8,9 @@ import { computeTax, formatINR } from '../data/flow.js';
 import CGCollector from './CGCollector.jsx';
 import { caUpdateReturn } from '../lib/supabase.js';
 import { Button } from './UI.jsx';
+import HintPanel from './HintPanel.jsx';
+import { checkReturnCompleteness } from '../lib/completenessCheck.js';
+import { determineITRForm } from '../lib/itrJson.js';
 
 const INP = {
   style: {
@@ -159,6 +162,28 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
   });
 
   const selTax     = regime === 'old' ? liveComp.oldTax : liveComp.newTax;
+
+  // ── Completeness check ────────────────────────────────────────
+  const itrForm    = determineITRForm(ret?.profile, liveComp);
+  const compData   = { ...liveComp, betterRegime: regime, bankAccounts, 
+    cap80C: liveComp.cap80C, cap80CCD1: liveComp.cap80CCD1, cap80D: liveComp.cap80D,
+    cap80TTA: liveComp.cap80TTA, cap80TTB: liveComp.cap80TTB, cap80G: liveComp.cap80G,
+    deductions80D: d80D, deductions80G: d80G, deductions80C: d80C,
+    houseProperty: houseProperty, capitalGains: capitalGains,
+    schedule80DData: comp.schedule80DData, schedule80GData: comp.schedule80GData,
+    tdsNonSalary: tdsNonSal, challans,
+    employerTAN: empTAN, employerName: empName,
+    has_bf_losses: false, has_foreign_income: false,
+  };
+  const kycForCheck = {
+    pan:       ret?.profiles?.pan || kycData?.pan || '',
+    full_name: ret?.profiles?.full_name || kycData?.full_name || '',
+    dob:       ret?.profiles?.dob || kycData?.dob || '',
+    aadhaar_last4: ret?.profiles?.aadhaar_last4 || kycData?.aadhaar_last4 || '',
+  };
+  const { hints: completenessHints, score: completenessScore } = checkReturnCompleteness(
+    compData, kycForCheck, itrForm, challans, []
+  );
   const balanceDue = Math.max(0, selTax - (liveComp.totalPaid || 0));
   const refund     = Math.max(0, (liveComp.totalPaid || 0) - selTax);
 
@@ -250,6 +275,9 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
       </div>
 
       {errors.general && <div style={{ padding: '8px 12px', background: 'var(--danger-light)', color: 'var(--danger)', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>⚠️ {errors.general}</div>}
+
+      {/* ── Completeness hints ── */}
+      <HintPanel hints={completenessHints} score={completenessScore} audience="ca" collapsible={true} defaultOpen={completenessScore.blocks > 0} />
 
       {/* ── Salary income ── */}
       <SEC t="Salary income" />

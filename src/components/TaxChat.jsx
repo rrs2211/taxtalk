@@ -3,6 +3,8 @@ import { Upload, CheckCircle, ChevronRight, FileText, RotateCcw, Send, Loader, A
 import { computeTax, formatINR, formatINRShort } from '../data/flow.js';
 import { useTranslation, translate } from '../i18n.js';
 import CGCollector from './CGCollector.jsx';
+import HintPanel, { HintSummaryBar } from './HintPanel.jsx';
+import { checkReturnCompleteness, hintsFor } from '../lib/completenessCheck.js';
 import CGTransactionImporter from './CGTransactionImporter.jsx';
 import { Button, Card, Badge } from './UI.jsx';
 import { useReturn } from '../hooks/useReturn.js';
@@ -340,6 +342,24 @@ function ComputationCard({ initialData, initialInputs, aisFlags, onApprove, subm
         </div>
       )}
 
+      {/* Completeness hints at the moment of submission */}
+      {(() => {
+        const { hints: subHints } = checkReturnCompleteness(
+          { ...comp, betterRegime: regime, bankAccounts: inp.bankAccounts || [],
+            deductions80D: comp.cap80D, deductions80G: comp.cap80G, deductions80C: comp.cap80C,
+            houseProperty: comp.houseProperty, capitalGains: comp.capitalGains },
+          {},
+          'ITR-1',
+          [],
+          []
+        );
+        const clientHints = hintsFor(subHints, 'client').filter(h => h.severity === 'block');
+        return clientHints.length > 0 ? (
+          <div style={{ marginBottom: 12 }}>
+            <HintPanel hints={clientHints} score={null} audience="client" collapsible={false} defaultOpen={true} />
+          </div>
+        ) : null;
+      })()}
       <Button variant="primary" style={{ width:'100%', justifyContent:'center' }} onClick={() => onApprove({...comp, betterRegime:regime, chosenTax:selTax, balanceDue:balance, refund})} disabled={submitting}>
         {submitting ? <><Loader size={14} style={{ animation:'spin 1s linear infinite' }}/> Submitting…</> : <><CheckCircle size={15}/> {lang==='hi'?'पुष्टि करें और CA को भेजें':lang==='gu'?'CA ને મોકલો':'Confirm & send to CA for review'}</>}
       </Button>

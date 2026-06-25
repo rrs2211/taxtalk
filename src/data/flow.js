@@ -428,3 +428,76 @@ export function formatINRShort(n) {
   if (abs >= 1000)     return `₹${(abs/1000).toFixed(1)}K`;
   return `₹${Math.round(abs).toLocaleString('en-IN')}`;
 }
+
+// ─── ITR-2 specific: AMT (Alternate Minimum Tax) u/s 115JC ───────────────────
+// Rule 428: AMT = 18.5% of Adjusted Total Income if ATI > Rs.20L
+// ATI = Total Income + 80QQB + 80RRB deductions (not applicable to companies)
+export function computeAMT(taxableIncome, totalDeductions, addBack80QQB = 0, addBack80RRB = 0) {
+  const ATI = taxableIncome + addBack80QQB + addBack80RRB;
+  if (ATI <= 2000000) return { amt: 0, ati: ATI, applicable: false }; // Rule 428: only if ATI > 20L
+  const amt = Math.round(ATI * 0.185 * 1.04); // 18.5% + 4% cess
+  return { amt, ati: ATI, applicable: true };
+}
+
+// ─── CYLA: Current Year Loss Adjustment ──────────────────────────────────────
+// Rules 252-268: HP loss set-off, STCG/LTCG loss set-off
+// HP loss max set-off = ₹2L (old regime); ₹0 (new regime — rule 264)
+// STCG/LTCG losses set-off in same-year against gains (Table E of Schedule CG)
+export function computeCYLA(incomes, losses, isOld) {
+  const {
+    salaryInc = 0, hpInc = 0, stcgInc = 0, ltcgInc = 0, osInc = 0,
+  } = incomes;
+  const {
+    hpLoss = 0, stcgLoss = 0, ltcgLoss = 0,
+  } = losses;
+
+  // Rule 249/264: HP loss set-off cap
+  const hpLossSetOff = isOld ? Math.min(Math.abs(hpLoss), 200000) : 0;
+
+  // After HP loss set-off, remaining income
+  const salAfterHP   = Math.max(0, salaryInc - hpLossSetOff);
+  const osAfterHP    = Math.max(0, osInc - Math.max(0, hpLossSetOff - salaryInc));
+  const hpLossRemain = Math.max(0, Math.abs(hpLoss) - hpLossSetOff);
+
+  // STCG loss set-off: first against STCG, then LTCG
+  const stcgAfterLoss = Math.max(0, stcgInc - stcgLoss);
+  const ltcgAfterStcgLoss = Math.max(0, ltcgInc - Math.max(0, stcgLoss - stcgInc));
+
+  // LTCG loss set-off: only against LTCG
+  const ltcgAfterLoss = Math.max(0, ltcgAfterStcgLoss - ltcgLoss);
+  const ltcgLossRemain = Math.max(0, ltcgLoss - ltcgAfterStcgLoss);
+  const stcgLossRemain = Math.max(0, stcgLoss - stcgInc - Math.max(0, ltcgLoss - ltcgInc));
+
+  return {
+    hpLossSetOff, hpLossRemain,
+    salAfterHP, osAfterHP,
+    stcgAfterLoss, ltcgAfterLoss,
+    stcgLossRemain, ltcgLossRemain,
+    incomeAfterCYLA: {
+      salary: salAfterHP,
+      hp: 0,               // HP loss fully set off or carried forward
+      stcg: stcgAfterLoss,
+      ltcg: ltcgAfterLoss,
+      os: osAfterHP,
+    },
+    cflHPLoss: hpLossRemain,
+    cflSTCGLoss: stcgLossRemain,
+    cflLTCGLoss: ltcgLossRemain,
+  };
+}
+
+// ─── Schedule CG Table E helper ───────────────────────────────────────────────
+// Rule 563: col8 = col1 - (col2+col3+col4+col5+col6+col7) for each row
+// Rule 551-562: set-off amounts cannot exceed income available
+export function buildScheduleCGTableE(stcgPre, stcgPost, ltcgEquity, ltcgProp, isOld) {
+  // Row structure: [rowName, income, losses set off in order]
+  // Simplified: only support same-head set-off for now (no cross-head CG set-off)
+  return {
+    STCG20pct:   { Income: stcgPost, LossSetOff: 0, Balance: stcgPost },
+    STCG15pct:   { Income: stcgPre,  LossSetOff: 0, Balance: stcgPre  },
+    LTCG125pct:  { Income: Math.max(0, ltcgEquity - 125000), LossSetOff: 0, Balance: Math.max(0, ltcgEquity - 125000) },
+    LTCGProp:    { Income: ltcgProp, LossSetOff: 0, Balance: ltcgProp },
+    TotalSTCG:   stcgPost + stcgPre,
+    TotalLTCG:   Math.max(0, ltcgEquity - 125000) + ltcgProp,
+  };
+}
