@@ -344,6 +344,220 @@ function ComputationCard({ initialData, initialInputs, aisFlags, onApprove, subm
   );
 }
 
+
+// ─── Unified input bar ────────────────────────────────────────────────────────
+// Combines: structured amount entry, free-text chat, and document upload
+// All in ONE bar so there's never two inputs on screen simultaneously
+
+const DOC_TYPES = [
+  { type: 'ais',           label: 'AIS / 26AS',   icon: '📄' },
+  { type: 'form16',        label: 'Form 16',       icon: '🧾' },
+  { type: 'balance_sheet', label: 'Balance Sheet', icon: '📊' },
+  { type: 'pl_statement',  label: 'P&L',           icon: '📈' },
+  { type: 'supporting_doc',label: 'Other',         icon: '📎' },
+];
+
+function UnifiedInput({
+  showInput, isTextInput, inputCtx, inputValue, setInputVal, handleAmount,
+  freeText, setFreeText, handleFreeChat, chatLoading, lang,
+  returnId, uploading, uploadPct, setUploading, setUploadPct,
+  addAI, setTds, setAdvTax, formatINR, done,
+  supabase, uploadDocument, setProcessing,
+}) {
+  const [showDocs, setShowDocs] = React.useState(false);
+  const [showHints, setShowHints] = React.useState(true);
+  const fileRefs = React.useRef({});
+
+  if (done) return null;
+
+  // When showInput, the chatbox takes the amount input role
+  const isAmountMode = showInput;
+  const placeholder = isAmountMode
+    ? (isTextInput
+        ? (lang==='hi' ? 'यहाँ लिखें...' : lang==='gu' ? 'અહીં લખો...' : 'Type here...')
+        : (lang==='hi' ? '₹ राशि लिखें...' : lang==='gu' ? '₹ રકમ લખો...' : '₹ Enter amount...'))
+    : (lang==='hi' ? 'salary, TDS, deductions, capital gains — सब एक साथ लिखें...'
+     : lang==='gu' ? 'salary, TDS, deductions, capital gains — બધું એકસાથે લખો...'
+     : 'Type anything — salary, TDS, deductions, capital gains...');
+
+  const currentValue = isAmountMode ? inputValue : freeText;
+
+  function handleChange(e) {
+    if (isAmountMode) setInputVal(e.target.value);
+    else setFreeText(e.target.value);
+  }
+
+  function handleSend() {
+    if (isAmountMode) { if (inputValue) handleAmount(); }
+    else { if (freeText.trim()) handleFreeChat(); }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }
+
+  async function handleDocUpload(file, docType) {
+    if (!returnId) { addAI(<p style={{ color:'var(--danger)' }}>Start the filing process first, then upload your document.</p>, null); return; }
+    setUploading(true); setShowDocs(false);
+    try {
+      const doc = await uploadDocument(file, returnId, docType, p => setUploadPct(p));
+      addAI(<p>✅ Document received — <strong>{file.name}</strong>. Reading it now...</p>, null);
+      if (docType === 'ais' || docType === 'form16' || docType === 'balance_sheet' || docType === 'pl_statement') {
+        setProcessing('Reading document...');
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+          body: JSON.stringify({ documentId: doc.id }),
+        });
+        const { extracted } = await res.json();
+        setProcessing(null);
+        if (extracted) {
+          const updates = [];
+          if (extracted.total_tds > 0)          { setTds(extracted.total_tds); updates.push(`TDS: ${formatINR(extracted.total_tds)}`); }
+          if (extracted.total_advance_tax > 0)  { setAdvTax(extracted.total_advance_tax); updates.push(`Advance tax: ${formatINR(extracted.total_advance_tax)}`); }
+          if (extracted.gross_salary > 0)        updates.push(`Salary: ${formatINR(extracted.gross_salary)}`);
+          const summary = updates.length > 0 ? updates.join(' · ') : 'Data extracted';
+          addAI(<p>✅ <strong>{docType === 'ais' ? 'AIS' : docType === 'form16' ? 'Form 16' : 'Document'}</strong> read successfully — {summary}. All figures have been updated.</p>, null);
+        }
+      } else {
+        addAI(<p>✅ Document saved. Your CA will review it along with your return.</p>, null);
+      }
+    } catch(e) {
+      setProcessing(null);
+      addAI(<p style={{ color:'var(--danger)' }}>Upload failed: {e.message}</p>, null);
+    } finally { setUploading(false); setUploadPct(0); }
+  }
+
+  const canSend = isAmountMode ? !!inputValue : (!!freeText.trim() && !chatLoading);
+  const inputType = isAmountMode && !isTextInput ? 'number' : 'text';
+  const inputMode = isAmountMode && !isTextInput ? 'numeric' : 'text';
+
+  const examples = [
+    lang==='hi' ? 'salary 8 lakh, TDS 50K, PPF 1.5L' :
+    lang==='gu' ? 'salary 8 lakh, TDS 50K, PPF 1.5L' :
+    'salary 8 lakh, TDS 50K, PPF 1.5L',
+
+    lang==='hi' ? 'FD interest 45000, mediclaim 20000' :
+    lang==='gu' ? 'FD interest 45000, mediclaim 20000' :
+    'FD interest 45K, mediclaim 20K',
+  ];
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
+
+      {/* Doc upload panel — slides in above the input */}
+      {showDocs && (
+        <div style={{ background:'var(--surface-2)', border:'1px solid var(--border)', borderRadius:'var(--radius-md)', padding:'10px 12px', marginBottom:6, animation:'fadeUp 0.18s ease' }}>
+          <div style={{ fontSize:11, fontWeight:600, color:'var(--text-muted)', marginBottom:8, textTransform:'uppercase', letterSpacing:'0.05em' }}>
+            {lang==='hi' ? 'दस्तावेज़ अपलोड करें' : lang==='gu' ? 'દસ્તાવેજ અપલોડ કરો' : 'Upload document'}
+          </div>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+            {DOC_TYPES.map(d => {
+              if (!fileRefs.current[d.type]) fileRefs.current[d.type] = React.createRef();
+              return (
+                <div key={d.type}>
+                  <input type="file" ref={fileRefs.current[d.type]} accept=".pdf,.jpg,.jpeg,.png,.csv"
+                    style={{ display:'none' }}
+                    onChange={e => { const f = e.target.files[0]; if (f) handleDocUpload(f, d.type); e.target.value=''; }}
+                  />
+                  <button onClick={() => fileRefs.current[d.type].current?.click()}
+                    disabled={uploading}
+                    style={{ padding:'6px 12px', borderRadius:20, border:'1px solid var(--border-strong)', background:'var(--surface)', fontSize:12, cursor:'pointer', color:'var(--text-secondary)', display:'flex', alignItems:'center', gap:4, minHeight:34 }}>
+                    <span>{d.icon}</span> {d.label}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {uploading && (
+            <div style={{ marginTop:8, fontSize:12, color:'var(--brand)', display:'flex', alignItems:'center', gap:6 }}>
+              <Loader size={12} style={{ animation:'spin 1s linear infinite' }}/> Uploading{uploadPct > 0 ? ` ${uploadPct}%` : '...'}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Main input box */}
+      <div style={{
+        display:'flex', alignItems:'stretch',
+        border:`1.5px solid ${isAmountMode ? 'var(--warn)' : 'var(--brand)'}`,
+        borderRadius:'var(--radius-md)',
+        background:'var(--surface)',
+        overflow:'hidden',
+        boxShadow: isAmountMode ? '0 0 0 3px var(--warn-light)' : '0 0 0 3px var(--brand-light)',
+        transition:'border-color 0.2s, box-shadow 0.2s',
+      }}>
+        {/* Upload button */}
+        <button
+          onClick={() => setShowDocs(d => !d)}
+          title={lang==='hi' ? 'दस्तावेज़ अपलोड' : lang==='gu' ? 'ડૉક્યુમેન્ટ' : 'Upload document'}
+          style={{ padding:'0 12px', background:'transparent', border:'none', borderRight:`1px solid ${isAmountMode ? '#fde68a' : 'var(--border)'}`, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color: showDocs ? 'var(--brand)' : 'var(--text-muted)', flexShrink:0 }}>
+          <Upload size={17}/>
+        </button>
+
+        {/* Amount prefix for number mode */}
+        {isAmountMode && !isTextInput && (
+          <div style={{ padding:'0 6px 0 2px', display:'flex', alignItems:'center', color:'var(--warn)', fontWeight:700, fontSize:16, flexShrink:0 }}>₹</div>
+        )}
+
+        {/* The input */}
+        <input
+          type={inputType}
+          inputMode={inputMode}
+          value={currentValue}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          autoFocus={isAmountMode}
+          style={{ flex:1, fontSize:15, padding:'14px 10px', background:'transparent', color:'var(--text-primary)', border:'none', outline:'none', minWidth:0 }}
+        />
+
+        {/* Loading indicator */}
+        {chatLoading && !isAmountMode && (
+          <div style={{ padding:'0 10px', display:'flex', alignItems:'center', flexShrink:0 }}>
+            <Loader size={15} style={{ animation:'spin 1s linear infinite', color:'var(--brand)' }}/>
+          </div>
+        )}
+
+        {/* Send button */}
+        <button
+          onClick={handleSend}
+          disabled={!canSend}
+          style={{ padding:'0 16px', background: canSend ? (isAmountMode ? 'var(--warn)' : 'var(--brand)') : 'var(--surface-3)', color: canSend ? '#fff' : 'var(--text-muted)', border:'none', borderLeft:`1px solid ${isAmountMode ? '#fde68a' : 'var(--border)'}`, cursor: canSend ? 'pointer' : 'not-allowed', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'background 0.15s' }}>
+          <Send size={16}/>
+        </button>
+      </div>
+
+      {/* Context label — shows what the input is expecting */}
+      {isAmountMode && (
+        <div style={{ fontSize:11, color:'var(--warn)', fontWeight:500, marginTop:4, paddingLeft:2 }}>
+          {lang==='hi' ? '↑ राशि दर्ज करें और ↵ दबाएं' : lang==='gu' ? '↑ રકમ દાખલ કરો અને ↵ દબાવો' : '↑ Enter the amount above and press ↵ or tap →'}
+        </div>
+      )}
+
+      {/* Example hints — only in free chat mode */}
+      {!isAmountMode && showHints && (
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:5, flexWrap:'wrap' }}>
+          <span style={{ fontSize:10, color:'var(--text-muted)', flexShrink:0 }}>
+            {lang==='hi' ? '💡' : lang==='gu' ? '💡' : '💡'}
+          </span>
+          {examples.map((ex, i) => (
+            <button key={i} onClick={() => { setFreeText(ex); setShowHints(false); }}
+              style={{ fontSize:10, color:'var(--brand)', background:'var(--brand-light)', border:'none', borderRadius:20, padding:'3px 8px', cursor:'pointer', whiteSpace:'nowrap' }}>
+              {ex}
+            </button>
+          ))}
+          <button onClick={() => setShowHints(false)} style={{ fontSize:10, color:'var(--text-muted)', background:'none', border:'none', cursor:'pointer', padding:0, marginLeft:'auto', flexShrink:0 }}>✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main TaxChat ──────────────────────────────────────────────────────────────
 export default function TaxChat({ userId }) {
   const { returnRecord, loadingReturn, saveComputation, persistMessage, submitToCA } = useReturn(userId);
@@ -1497,57 +1711,7 @@ export default function TaxChat({ userId }) {
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'var(--surface-2)', overflow:'hidden' }}>
 
-      {/* Persistent document upload tray */}
-      {showDocTray && (
-        <div style={{ background:'var(--surface)', borderBottom:'1px solid var(--border)', padding:'10px 14px', flexShrink:0, animation:'fadeUp 0.2s ease' }}>
-          <div style={{ fontWeight:600, fontSize:12, color:'var(--brand)', marginBottom:8 }}>Upload document</div>
-          <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-            {[
-              { type:'ais',           label:'AIS / Form 26AS' },
-              { type:'form16',        label:'Form 16' },
-              { type:'balance_sheet', label:'Balance Sheet' },
-              { type:'pl_statement',  label:'P&L Statement' },
-              { type:'supporting_doc',label:'Other document' },
-            ].map(d => {
-              const ref = React.createRef();
-              return (
-                <div key={d.type}>
-                  <input type="file" ref={ref} accept=".pdf,.jpg,.jpeg,.png" style={{ display:'none' }}
-                    onChange={async e => {
-                      const file = e.target.files[0]; if(!file) return;
-                      setUploading(true);
-                      try {
-                        const doc = await uploadDocument(file, returnRecord.id, d.type, p => setUploadPct(p));
-                        addAI(<p>✅ {d.label} uploaded. <span style={{ fontSize:12, color:'var(--text-muted)' }}>I will use this for your return calculations.</span></p>, null);
-                        // Trigger re-extraction for AIS
-                        if (d.type === 'ais') {
-                          setProcessing('Reading AIS...');
-                          const { data:{ session } } = await supabase.auth.getSession();
-                          const res = await fetch('/api/extract', { method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`}, body:JSON.stringify({ documentId: doc.id }) });
-                          const { extracted } = await res.json();
-                          setProcessing(null);
-                          if (extracted) {
-                            // Update TDS / advance tax if already past that step
-                            const newTDS = extracted.total_tds || 0;
-                            const newAdv = extracted.total_advance_tax || 0;
-                            if (newTDS > 0) setTds(newTDS);
-                            if (newAdv > 0) setAdvTax(newAdv);
-                            addAI(<p>AIS data updated — TDS: <strong>{formatINR(newTDS)}</strong>, Advance tax: <strong>{formatINR(newAdv)}</strong></p>, null);
-                          }
-                        }
-                        setShowDocTray(false);
-                      } catch(ex) { addAI(<p style={{ color:'var(--danger)' }}>Upload failed: {ex.message}</p>, null); }
-                      finally { setUploading(false); setUploadPct(0); }
-                    }}/>
-                  <button onClick={() => ref.current?.click()} style={{ padding:'6px 12px', borderRadius:8, border:'1px solid var(--border-strong)', background:'var(--surface-2)', fontSize:12, cursor:'pointer', color:'var(--text-secondary)' }}>
-                    {d.label}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+{/* Document upload tray moved to chatbox toolbar */}
 
       {/* Sub-header in chat */}
       <div style={{ background:'var(--surface)', borderBottom:'1px solid var(--border)', padding:'8px 14px', display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
@@ -1558,10 +1722,7 @@ export default function TaxChat({ userId }) {
           </div>
         </div>
         <Badge variant="info"><FileText size={11}/> {itrBadge}</Badge>
-        <button onClick={() => setShowDocTray(d => !d)} title="Upload document"
-          style={{ padding:'4px 8px', border:'1px solid var(--border)', borderRadius:6, background:showDocTray?'var(--brand-light)':'transparent', color:showDocTray?'var(--brand)':'var(--text-muted)', cursor:'pointer', fontSize:12, display:'flex', alignItems:'center', gap:4 }}>
-          <Upload size={12}/> <span style={{ fontSize:11 }}>Docs</span>
-        </button>
+        {/* Upload button moved to chatbox toolbar */}
       </div>
 
       {/* Messages */}
@@ -1764,25 +1925,7 @@ export default function TaxChat({ userId }) {
             </div>
           )}
 
-          {/* Amount / text input */}
-          {showInput && (
-            <div style={{ display:'flex', gap:8 }}>
-              <div style={{ flex:1, border:'1.5px solid var(--border-strong)', borderRadius:'var(--radius-md)', padding:'0 14px', display:'flex', alignItems:'center', gap:8, background:'var(--surface)', minWidth:0 }}>
-                {!isTextInput && <span style={{ fontWeight:600, color:'var(--text-muted)', flexShrink:0 }}>₹</span>}
-                <input
-                  type={isTextInput ? 'text' : 'number'}
-                  inputMode={isTextInput ? 'text' : 'numeric'}
-                  placeholder={isTextInput ? 'Enter text' : 'Enter amount'}
-                  value={inputValue}
-                  onChange={e => setInputVal(e.target.value)}
-                  onKeyDown={e => e.key==='Enter' && inputValue && handleAmount()}
-                  autoFocus
-                  style={{ flex:1, fontSize:16, padding:'13px 0', background:'transparent', color:'var(--text-primary)', border:'none', outline:'none', minWidth:0 }}
-                />
-              </div>
-              <button onClick={handleAmount} disabled={!inputValue} className="btn btn-primary" style={{ flexShrink:0, minWidth:52 }}><Send size={16}/></button>
-            </div>
-          )}
+{/* Amount input is now merged into the unified chat box below — no separate input */}
 
           {/* Done */}
           {step === S.DONE && (
@@ -1793,55 +1936,33 @@ export default function TaxChat({ userId }) {
           </>
           )}
 
-          {/* ── Free-text chat — PRIMARY input, always shown first ── */}
-          {step !== S.DONE && (
-            <div style={{ borderRadius: 'var(--radius-md)', border: '1.5px solid var(--brand)', background: 'var(--surface)', overflow: 'hidden' }}>
-              {/* Main text input row */}
-              <div style={{ display:'flex', alignItems:'center', gap:0 }}>
-                <div style={{ flex:1, display:'flex', alignItems:'center', gap:8, padding:'0 14px', minWidth:0 }}>
-                  <input
-                    value={freeText}
-                    onChange={e => setFreeText(e.target.value)}
-                    onKeyDown={e => e.key==='Enter' && !e.shiftKey && freeText.trim() && handleFreeChat()}
-                    placeholder={
-                      lang === 'hi' ? 'यहाँ लिखें — salary, TDS, FD interest, 80C सब एक साथ लिख सकते हैं...' :
-                      lang === 'gu' ? 'અહીં લખો — salary, TDS, FD interest, 80C બધું એકસાથે...' :
-                      'Type anything — salary, TDS, deductions, capital gains all at once...'
-                    }
-                    style={{ flex:1, fontSize:15, padding:'14px 0', background:'transparent', color:'var(--text-primary)', border:'none', outline:'none', minWidth:0 }}
-                  />
-                  {chatLoading && <Loader size={14} style={{ animation:'spin 1s linear infinite', color:'var(--brand)', flexShrink:0 }}/>}
-                </div>
-                <button
-                  onClick={handleFreeChat}
-                  disabled={!freeText.trim() || chatLoading}
-                  style={{ padding:'14px 16px', background: freeText.trim() ? 'var(--brand)' : 'var(--surface-3)', color: freeText.trim() ? '#fff' : 'var(--text-muted)', border:'none', borderLeft:'1px solid var(--border)', cursor: freeText.trim() ? 'pointer' : 'not-allowed', flexShrink:0, display:'flex', alignItems:'center', gap:6, fontSize:13, fontWeight:500, transition:'background 0.15s' }}>
-                  <Send size={15}/>
-                  <span style={{ display: 'none' }}>Send</span>
-                </button>
-              </div>
-              {/* Hint bar */}
-              <div style={{ padding:'5px 14px 7px', background:'var(--brand-light)', borderTop:'1px solid var(--brand)', display:'flex', gap:12, flexWrap:'wrap', overflowX:'hidden' }}>
-                <span style={{ fontSize:10, color:'var(--brand)', fontWeight:500 }}>
-                  {lang === 'hi' ? '💡 उदाहरण:' : lang === 'gu' ? '💡 ઉદાહરણ:' : '💡 Examples:'}
-                </span>
-                {[
-                  lang === 'hi' ? '"salary 8 lakh, TDS 50000, PPF 1.5 lakh"' :
-                  lang === 'gu' ? '"salary 8 lakh, TDS 50000, PPF 1.5 lakh"' :
-                  '"salary 8 lakh, TDS 50K, PPF 1.5L"',
-
-                  lang === 'hi' ? '"FD interest 45000, mediclaim 20000"' :
-                  lang === 'gu' ? '"FD interest 45000, mediclaim 20000"' :
-                  '"FD interest 45K, mediclaim 20K"',
-                ].map((e, i) => (
-                  <button key={i} onClick={() => { setFreeText(e.replace(/"/g,'')); }}
-                    style={{ fontSize:10, color:'var(--brand)', background:'none', border:'none', cursor:'pointer', padding:0, textDecoration:'underline' }}>
-                    {e}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* ── UNIFIED chatbox — amount entry + free chat + upload, all in one ── */}
+          <UnifiedInput
+            showInput={showInput}
+            isTextInput={isTextInput}
+            inputCtx={inputCtx}
+            inputValue={inputValue}
+            setInputVal={setInputVal}
+            handleAmount={handleAmount}
+            freeText={freeText}
+            setFreeText={setFreeText}
+            handleFreeChat={handleFreeChat}
+            chatLoading={chatLoading}
+            lang={lang}
+            returnId={returnRecord?.id}
+            uploading={uploading}
+            uploadPct={uploadPct}
+            setUploading={setUploading}
+            setUploadPct={setUploadPct}
+            addAI={addAI}
+            setTds={setTds}
+            setAdvTax={setAdvTax}
+            formatINR={formatINR}
+            done={step === S.DONE}
+            supabase={supabase}
+            uploadDocument={uploadDocument}
+            setProcessing={setProcessing}
+          />
         </div>
       )}
     </div>

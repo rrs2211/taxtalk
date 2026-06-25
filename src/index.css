@@ -99,11 +99,11 @@ textarea {
 .app-shell {
   display:        flex;
   flex-direction: column;
-  height:         100dvh;
+  /* Total height = viewport minus space for fixed bottom nav */
+  height:         calc(100dvh - var(--tab-height) - var(--safe-bottom));
   height:         -webkit-fill-available;
   overflow:       hidden;
-  /* bottom-nav is fixed, so page-full needs bottom padding */
-  padding-bottom: calc(var(--tab-height) + var(--safe-bottom));
+  /* No padding-bottom — height already accounts for bottom nav */
 }
 
 /* ── Top nav bar ───────────────────────────────────────────────────────────── */
@@ -323,8 +323,8 @@ textarea {
   flex-shrink:   0;
   background:    var(--surface);
   border-top:    1px solid var(--border);
-  padding:       12px 14px;
-  padding-bottom: calc(12px + var(--safe-bottom));
+  /* No extra bottom padding — app-shell already pads for the tab bar */
+  padding:       10px 14px 12px;
 }
 
 /* ── Chip / tag buttons ─────────────────────────────────────────────────────── */
