@@ -886,8 +886,9 @@ function ReturnCard({ ret, userId, onDelete, onUpdate, lang = 'en' }) {
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
-export default function ClientReturnManager({ userId }) {
-  const { lang }  = useTranslation();
+export default function ClientReturnManager({ userId, lang: langProp = 'en' }) {
+  const { lang: langCtx } = useTranslation();
+  const lang = langProp || langCtx || 'en';
   const T = (k) => translate(k, lang);
   const [returns, setReturns] = useState([]);
   const [loading, setLoading] = useState(true);

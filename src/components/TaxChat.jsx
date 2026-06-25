@@ -337,7 +337,7 @@ function ComputationCard({ initialData, initialInputs, aisFlags, onApprove, subm
       )}
 
       <Button variant="primary" style={{ width:'100%', justifyContent:'center' }} onClick={() => onApprove({...comp, betterRegime:regime, chosenTax:selTax, balanceDue:balance, refund})} disabled={submitting}>
-        {submitting ? <><Loader size={14} style={{ animation:'spin 1s linear infinite' }}/> Submitting…</> : <><CheckCircle size={15}/> Confirm & send to CA for review</>}
+        {submitting ? <><Loader size={14} style={{ animation:'spin 1s linear infinite' }}/> Submitting…</> : <><CheckCircle size={15}/> {lang==='hi'?'पुष्टि करें और CA को भेजें':lang==='gu'?'CA ને મોકલો':'Confirm & send to CA for review'}</>}
       </Button>
       <p style={{ fontSize:12, color:'var(--text-muted)', textAlign:'center', marginTop:8 }}>Your CA at RB Shah & Associates will verify and file</p>
     </Card>
@@ -559,7 +559,7 @@ function UnifiedInput({
 }
 
 // ── Main TaxChat ──────────────────────────────────────────────────────────────
-export default function TaxChat({ userId }) {
+export default function TaxChat({ userId, lang: langProp }) {
   const { returnRecord, loadingReturn, saveComputation, persistMessage, submitToCA } = useReturn(userId);
   const { lang, t: tr }   = useTranslation();
 
@@ -1709,7 +1709,7 @@ export default function TaxChat({ userId }) {
   const itrBadge = taxProfile === 'salaried' ? 'ITR-1' : taxProfile === 'business' || taxProfile === 'freelancer' ? 'ITR-4' : taxProfile === 'partner' ? 'ITR-3' : 'ITR';
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'var(--surface-2)', overflow:'hidden' }}>
+    <div className="chat-shell">
 
 {/* Document upload tray moved to chatbox toolbar */}
 
@@ -1718,7 +1718,11 @@ export default function TaxChat({ userId }) {
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:12, color:'var(--success)', display:'flex', alignItems:'center', gap:4 }}>
             <div style={{ width:6, height:6, borderRadius:'50%', background:'var(--success)', flexShrink:0 }}/>
-            <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>RB Shah & Associates · AY 2026-27</span>
+            <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              {lang==='hi' ? 'RB Shah & Associates · AY 2026-27 · हिंदी' :
+               lang==='gu' ? 'RB Shah & Associates · AY 2026-27 · ગુજ.' :
+               'RB Shah & Associates · AY 2026-27'}
+            </span>
           </div>
         </div>
         <Badge variant="info"><FileText size={11}/> {itrBadge}</Badge>
@@ -1757,7 +1761,7 @@ export default function TaxChat({ userId }) {
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               <UploadBtn label="Upload previous year ITR or Computation" subLabel="Optional — PDF or image" onFile={handlePrevItrUpload} uploading={uploading} progress={uploadPct}/>
               <button onClick={goToAISStep} style={{ padding:10, border:'1px solid var(--border)', borderRadius:'var(--radius-md)', background:'transparent', color:'var(--text-secondary)', fontSize:13, cursor:'pointer' }}>
-                Skip — I don't have previous year ITR
+                {lang==='hi' ? 'छोड़ें — पिछले साल का ITR नहीं है' : lang==='gu' ? 'છોડો — ગત વર્ષનો ITR નથી' : "Skip — I don't have previous year ITR"}
               </button>
             </div>
           )}
@@ -1767,7 +1771,7 @@ export default function TaxChat({ userId }) {
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               <UploadBtn label="Upload AIS / Form 26AS" subLabel="PDF from incometax.gov.in" onFile={handleAISUpload} uploading={uploading} progress={uploadPct}/>
               <button onClick={skipAIS} style={{ padding:10, border:'1px solid var(--border)', borderRadius:'var(--radius-md)', background:'transparent', color:'var(--text-secondary)', fontSize:13, cursor:'pointer' }}>
-                Skip — I'll upload later or enter manually
+                {T('ais.skip')}
               </button>
               {uploadError && <div style={{ display:'flex', gap:6, fontSize:12, color:'var(--danger)', alignItems:'center' }}><AlertCircle size={13}/>{uploadError}</div>}
             </div>
@@ -1784,11 +1788,11 @@ export default function TaxChat({ userId }) {
           {step === S.AIS_CONFIRM && (
             <div style={{ display:'flex', gap:8 }}>
               <Button variant="secondary" style={{ flex:1, justifyContent:'center' }} onClick={() => {
-                addUser('Some details are different');
+                addUser(T('ais.some_differ'));
                 addAI(<p style={{ marginBottom:8 }}>No problem — you can correct any figure in the final review screen. Shall we continue?</p>, null);
                 setTimeout(confirmAIS, 1200);
-              }}>Some details differ</Button>
-              <Button variant="primary" style={{ flex:1, justifyContent:'center' }} onClick={confirmAIS}>Looks correct ✓</Button>
+              }}>{T('ais.some_differ')}</Button>
+              <Button variant="primary" style={{ flex:1, justifyContent:'center' }} onClick={confirmAIS}>{T('ais.looks_correct')}</Button>
             </div>
           )}
 
@@ -1796,12 +1800,12 @@ export default function TaxChat({ userId }) {
           {step === S.INCOME_CONFIRM && (
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
               <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
-                {EXTRA_INCOME_TYPES.map(t => (
-                  <Chip key={t.id} label={t.label} selected={extraIncomeTypes.includes(t.id)} onClick={() => toggleExtra(t.id)}/>
+                {EXTRA_INCOME_TYPES.map(item => (
+                  <Chip key={item.id} label={T(item.i18nKey) || item.label} selected={extraIncomeTypes.includes(item.id)} onClick={() => toggleExtra(item.id)}/>
                 ))}
               </div>
               <Button variant="primary" onClick={confirmExtraIncome} disabled={extraIncomeTypes.length===0} style={{ alignSelf:"flex-end" }}>
-                Continue <ChevronRight size={15}/>
+                {T('common.continue')} <ChevronRight size={15}/>
               </Button>
             </div>
           )}
@@ -1830,16 +1834,16 @@ export default function TaxChat({ userId }) {
                   setStep(S.HP_TYPE);
                   addAI(<p>Is your property <strong>self-occupied</strong> or <strong>rented out</strong>?</p>, null);
                 } else { routeToNextStep(); }
-              }} style={{ alignSelf:"flex-end" }}>Confirm capital gains <ChevronRight size={15}/></Button>
+              }} style={{ alignSelf:"flex-end" }}>{lang==='hi'?'पूंजी लाभ की पुष्टि करें':lang==='gu'?'કેપિટલ ગેઇન્સ ખાતરી':' Confirm capital gains'} <ChevronRight size={15}/></Button>
             </div>
           )}
 
           {/* Form 16 */}
           {step === S.FORM16 && !showInput && (
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              <UploadBtn label="Upload Form 16" subLabel="PDF or clear photo" onFile={handleForm16Upload} uploading={uploading} progress={uploadPct}/>
+              <UploadBtn label={T('form16.upload')} subLabel={T('form16.sub')} onFile={handleForm16Upload} uploading={uploading} progress={uploadPct}/>
               <button onClick={skipForm16} style={{ padding:10, border:'1px solid var(--border)', borderRadius:'var(--radius-md)', background:'transparent', color:'var(--text-secondary)', fontSize:13, cursor:'pointer' }}>
-                Skip — use AIS salary figures instead
+                {T('form16.skip')}
               </button>
             </div>
           )}
@@ -1886,7 +1890,7 @@ export default function TaxChat({ userId }) {
           {step === S.DED_80C && (
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
               <div style={{ display:'flex', flexWrap:'wrap', gap:8, overflowX:'hidden' }}>
-                {DEDUCTION_OPTIONS.map(o => <Chip key={o.id} label={o.label} selected={sel80C.includes(o.id)} onClick={() => toggle80C(o.id)}/>)}
+                {DEDUCTION_OPTIONS.map(o => <Chip key={o.id} label={T(o.i18nKey) || o.label} selected={sel80C.includes(o.id)} onClick={() => toggle80C(o.id)}/>)}
               </div>
               <Button variant="primary" onClick={confirm80C} disabled={sel80C.length===0} style={{ alignSelf:'flex-end' }}>Continue <ChevronRight size={15}/></Button>
             </div>
@@ -1896,7 +1900,7 @@ export default function TaxChat({ userId }) {
           {step === S.DED_OTHER && (
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
               <div style={{ display:'flex', flexWrap:'wrap', gap:8, overflowX:'hidden' }}>
-                {OTHER_DED_OPTIONS.map(o => <Chip key={o.id} label={o.label} selected={selOther.includes(o.id)} onClick={() => toggleOtherDed(o.id)}/>)}
+                {OTHER_DED_OPTIONS.map(o => <Chip key={o.id} label={T(o.i18nKey) || o.label} selected={selOther.includes(o.id)} onClick={() => toggleOtherDed(o.id)}/>)}
               </div>
               <Button variant="primary" onClick={confirmOtherDed} disabled={selOther.length===0} style={{ alignSelf:'flex-end' }}>Continue <ChevronRight size={15}/></Button>
             </div>
@@ -1905,8 +1909,8 @@ export default function TaxChat({ userId }) {
           {/* HP type */}
           {step === S.HP_TYPE && !showInput && (
             <div style={{ display:'flex', gap:8 }}>
-              <Button variant="secondary" style={{ flex:1, justifyContent:'center' }} onClick={() => handleHPType('Self Occupied')}>Self-occupied</Button>
-              <Button variant="primary"   style={{ flex:1, justifyContent:'center' }} onClick={() => handleHPType('Rented')}>Rented out</Button>
+              <Button variant="secondary" style={{ flex:1, justifyContent:'center' }} onClick={() => handleHPType('Self Occupied')}>{T('hp.self_occupied')}</Button>
+              <Button variant="primary"   style={{ flex:1, justifyContent:'center' }} onClick={() => handleHPType('Rented')}>{T('hp.rented')}</Button>
             </div>
           )}
 
@@ -1914,14 +1918,14 @@ export default function TaxChat({ userId }) {
           {step === S.TAXES_CONFIRM && !showInput && (
             <div style={{ display:'flex', gap:8 }}>
               <Button variant="secondary" style={{ flex:1, justifyContent:'center' }} onClick={() => {
-                addUser('Need to update tax figures');
+                addUser(T('tax.update_figures'));
                 ask(<p>Enter the correct <strong>total TDS deducted</strong> as per your records:</p>, 'tds_update');
                 setInputCtx('tds_update');
-              }}>Update figures</Button>
+              }}>{T('tax.update_figures')}</Button>
               <Button variant="primary" style={{ flex:1, justifyContent:'center' }} onClick={() => {
-                addUser('Tax figures are correct');
+                addUser(T('tax.correct_continue'));
                 computeAndShow();
-              }}>Correct — continue ✓</Button>
+              }}>{T('tax.correct_continue')}</Button>
             </div>
           )}
 
@@ -1930,7 +1934,7 @@ export default function TaxChat({ userId }) {
           {/* Done */}
           {step === S.DONE && (
             <button onClick={handleReset} style={{ width:'100%', padding:12, border:'1px solid var(--border)', borderRadius:'var(--radius-md)', background:'var(--surface-3)', color:'var(--text-secondary)', fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
-              <RotateCcw size={14}/> Start a new return
+              <RotateCcw size={14}/> {lang==='hi' ? 'नया रिटर्न शुरू करें' : lang==='gu' ? 'નવો રિટર્ન શરૂ કરો' : 'Start a new return'}
             </button>
           )}
           </>

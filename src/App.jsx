@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MessageCircle, ClipboardCheck, Inbox, User, LogOut, Shield, ChevronLeft } from 'lucide-react';
 import { useAuth } from './hooks/useAuth.js';
-import { LangProvider } from './i18n.js';
+import { LangProvider, translate as t } from './i18n.js';
 import LanguageSwitcher from './components/LanguageSwitcher.jsx';
 import AuthScreen from './components/AuthScreen.jsx';
 import TaxChat from './components/TaxChat.jsx';
@@ -91,15 +91,15 @@ export default function App() {
     );
   }
 
-  // Tab config
+  // Tab config — labels translated
   const TABS = auth.isCA ? [
-    { id: 'chat',  label: 'File return',  icon: MessageCircle },
-    { id: 'ca',    label: 'CA review',    icon: ClipboardCheck },
-    { id: 'profile', label: 'Account',   icon: User },
+    { id: 'chat',    label: t('nav.file_return', lang), icon: MessageCircle },
+    { id: 'ca',      label: t('nav.ca_review',   lang), icon: ClipboardCheck },
+    { id: 'profile', label: t('nav.account',     lang), icon: User },
   ] : [
-    { id: 'chat',  label: 'File return',  icon: MessageCircle },
-    { id: 'inbox', label: 'My returns',   icon: Inbox },
-    { id: 'profile', label: 'Account',   icon: User },
+    { id: 'chat',    label: t('nav.file_return', lang), icon: MessageCircle },
+    { id: 'inbox',   label: t('nav.my_returns',  lang), icon: Inbox },
+    { id: 'profile', label: t('nav.account',     lang), icon: User },
   ];
 
   const firstName = auth.profile?.full_name?.split(' ')[0] || auth.profile?.email?.split('@')[0] || 'Account';
@@ -131,26 +131,26 @@ export default function App() {
       {/* Page content */}
       <div className="page-full">
         {/* Chat tab */}
-        <div style={{ display: view === 'chat' ? 'flex' : 'none', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-          <TaxChat userId={auth.user.id}/>
+        <div style={{ display: view === 'chat' ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+          <TaxChat userId={auth.user.id} lang={lang}/>
         </div>
 
         {/* Inbox tab */}
-        <div style={{ display: view === 'inbox' ? 'flex' : 'none', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+        <div style={{ display: view === 'inbox' ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="page-content">
-            {!auth.isCA && <ClientReturnManager userId={auth.user.id}/>}
+            {!auth.isCA && <ClientReturnManager userId={auth.user.id} lang={lang}/>}
           </div>
         </div>
 
         {/* CA review tab */}
-        <div style={{ display: view === 'ca' ? 'flex' : 'none', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+        <div style={{ display: view === 'ca' ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="page-content">
             {auth.isCA && <CADashboard caUserId={auth.user.id}/>}
           </div>
         </div>
 
         {/* Profile tab */}
-        <div style={{ display: view === 'profile' ? 'flex' : 'none', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+        <div style={{ display: view === 'profile' ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
           <div className="page-content" style={{ padding: '20px 16px' }}>
             {/* Profile summary */}
             <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '20px 16px', marginBottom: 14 }}>
@@ -188,7 +188,7 @@ export default function App() {
 
             {/* Sign out */}
             <button onClick={auth.signOut} className="btn btn-danger btn-full">
-              <LogOut size={15}/> Sign out
+              <LogOut size={15}/> {t('nav.sign_out', lang)}
             </button>
           </div>
         </div>
