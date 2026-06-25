@@ -220,7 +220,10 @@ textarea {
   background:     var(--surface);
   border-top:     1px solid var(--border);
   padding:        10px 14px 12px;
-  /* No bottom padding hack needed — bottom-nav is a flex sibling */
+  /* Allow scrolling when content is taller than available space */
+  overflow-y:     auto;
+  max-height:     60vh;          /* never take more than 60% of viewport */
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ── Cards ─────────────────────────────────────────────────────────────────── */

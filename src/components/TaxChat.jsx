@@ -15,6 +15,8 @@ const S = {
   PAN_COLLECT: 'pan_collect',
   // Welcome — offer prev year ITR upload (optional)
   WELCOME: 'welcome',
+  // Income type selection — ALL types (salary, business, freelancer, etc.)
+  PROFILE_SELECT: 'profile_select',
   PREV_ITR: 'prev_itr',          // optional: upload last year ITR/computation
   // AIS — now optional
   AIS_UPLOAD: 'ais_upload',
@@ -713,11 +715,12 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
         );
         setTimeout(() => {
           ask(
-            <p>
-              {wLang==='hi' ? 'आपका <strong>पूरा नाम</strong> (PAN Card के अनुसार)?'
-              : wLang==='gu' ? 'તમારું <strong>પૂરું નામ</strong> (PAN Card પ્રમાણે)?'
-              : 'What is your <strong>full name</strong> as on your PAN card?'}
-            </p>, 'pan_collect_name', true
+            wLang==='hi'
+              ? <p>आपका <strong>पूरा नाम</strong> (PAN Card के अनुसार)?</p>
+              : wLang==='gu'
+              ? <p>તમારું <strong>પૂરું નામ</strong> (PAN Card પ્રમાણે)?</p>
+              : <p>What is your <strong>full name</strong> as on your PAN card?</p>,
+            'pan_collect_name', true
           );
         }, 800);
         return;
@@ -810,32 +813,56 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
     const text = freeText.trim();
     setFreeText('');
     addUser(text);
-    setFreeParsing(true);
+    setChatLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch('/api/chat-parse', {
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-        body: JSON.stringify({ message: text, language: lang }),
+        body: JSON.stringify({
+          message: text,
+          lang: langProp || lang || localStorage.getItem('taxtalk_lang') || 'en',
+          state: {
+            step, profile: taxProfile,
+            grossSalary, businessIncome, bizTurnover,
+            savingsInterest, fdInterest, dividendIncome,
+            tds, advanceTax, selfAssessment: selfAssess,
+            deductions80C, deductions80D, ageGroup,
+          },
+        }),
       });
-      const { parsed } = await res.json();
-      setFreeParsing(false);
+      const parsed = await res.json();
+      setChatLoading(false);
 
       const ext = parsed?.extracted || {};
       let updates = [];
 
-      // Apply extracted values
-      if (ext.gross_salary)       { setGross(ext.gross_salary);       updates.push(`Salary: ${formatINR(ext.gross_salary)}`); }
-      if (ext.tds_deducted)       { setTds(ext.tds_deducted);         updates.push(`TDS: ${formatINR(ext.tds_deducted)}`); }
-      if (ext.advance_tax)        { setAdvTax(ext.advance_tax);       updates.push(`Advance tax: ${formatINR(ext.advance_tax)}`); }
-      if (ext.self_assessment_tax){ setSelfAss(ext.self_assessment_tax); updates.push(`Self-assessment tax: ${formatINR(ext.self_assessment_tax)}`); }
-      if (ext.savings_interest)   { setSavInt(ext.savings_interest);  setInt(i => i + ext.savings_interest); updates.push(`Savings interest: ${formatINR(ext.savings_interest)}`); }
-      if (ext.fd_interest)        { setFdInt(ext.fd_interest);        setInt(i => i + ext.fd_interest); updates.push(`FD interest: ${formatINR(ext.fd_interest)}`); }
-      if (ext.interest_income && !ext.savings_interest && !ext.fd_interest) { setInt(ext.interest_income); setSavInt(ext.interest_income); updates.push(`Interest: ${formatINR(ext.interest_income)}`); }
-      if (ext.dividend_income)    { setDiv(ext.dividend_income);      updates.push(`Dividends: ${formatINR(ext.dividend_income)}`); }
-      if (ext.business_income)    { setBiz(ext.business_income);      updates.push(`Business income: ${formatINR(ext.business_income)}`); }
-      if (ext.deductions_80c)     { setD80C(ext.deductions_80c);      updates.push(`80C: ${formatINR(ext.deductions_80c)}`); }
-      if (ext.deductions_80d)     { setD80D(ext.deductions_80d);      updates.push(`Mediclaim: ${formatINR(ext.deductions_80d)}`); }
+      // Apply extracted values — handles both camelCase (/api/chat) and snake_case (legacy)
+      const gs = ext.grossSalary || ext.gross_salary;
+      const td = ext.tds || ext.tds_deducted;
+      const at = ext.advanceTax || ext.advance_tax;
+      const sa = ext.selfAssessment || ext.self_assessment_tax;
+      const si = ext.savingsInterest || ext.savings_interest;
+      const fi = ext.fdInterest || ext.fd_interest;
+      const di = ext.dividendIncome || ext.dividend_income;
+      const bi = ext.businessIncome || ext.business_income;
+      const d80c = ext.deductions80C || ext.deductions_80c;
+      const d80d = ext.deductions80D || ext.deductions_80d;
+      const prof = ext.profile;
+      const ag = ext.ageGroup;
+
+      if (gs)   { setGross(gs);   setTaxProfile(p => p || 'salaried'); updates.push(`Salary: ${formatINR(gs)}`); }
+      if (td)   { setTds(td);     updates.push(`TDS: ${formatINR(td)}`); }
+      if (at)   { setAdvTax(at);  updates.push(`Advance tax: ${formatINR(at)}`); }
+      if (sa)   { setSelfAss(sa); updates.push(`Self-assessment tax: ${formatINR(sa)}`); }
+      if (si)   { setSavInt(si);  setInt(x => x + si); updates.push(`Savings interest: ${formatINR(si)}`); }
+      if (fi)   { setFdInt(fi);   setInt(x => x + fi); updates.push(`FD interest: ${formatINR(fi)}`); }
+      if (di)   { setDiv(di);     updates.push(`Dividends: ${formatINR(di)}`); }
+      if (bi)   { setBiz(bi);     setTaxProfile(p => p || 'business'); updates.push(`Business income: ${formatINR(bi)}`); }
+      if (d80c) { setD80C(d80c);  updates.push(`80C: ${formatINR(d80c)}`); }
+      if (d80d) { setD80D(d80d);  updates.push(`Mediclaim: ${formatINR(d80d)}`); }
+      if (prof) { setTaxProfile(prof); }
+      if (ag)   { setAgeGroup(ag); }
 
       // Build response message
       const confirmed = parsed.understood_message || '';
@@ -869,7 +896,7 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
         </>, null
       );
     } catch(e) {
-      setFreeParsing(false);
+      setChatLoading(false);
       addAI(<p>Could not process your message. Please try again.</p>, null);
     }
   }
@@ -1149,7 +1176,17 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
     }, 800);
   }
 
-  // ── Business type ───────────────────────────────────────────────────────────
+  // ── Primary income type (first question) ─────────────────────────────────────
+  const INCOME_TYPES = [
+    { id:'salaried',   label: lang==='hi' ? 'नौकरी / वेतन'      : lang==='gu' ? 'નોકરી / પગાર'      : 'Salaried — Job / Employment',           sub: lang==='hi' ? 'Form 16, TDS deduction' : lang==='gu' ? 'Form 16, TDS કપાત' : 'Salary income · Form 16 · TDS deducted by employer' },
+    { id:'business',   label: lang==='hi' ? 'व्यापार / दुकान'    : lang==='gu' ? 'વ્યવસાય / દુકાન'    : 'Business / Shop (Sec 44AD)',             sub: lang==='hi' ? 'कारोबार ₹3 Cr तक · अनुमानित आय' : lang==='gu' ? 'ટર્નઓવર ₹3 Cr સુધી · અનુમાનિત આવક' : 'Turnover ≤ ₹3 Cr · Presumptive income @ 6%/8%' },
+    { id:'freelancer', label: lang==='hi' ? 'फ्रीलांसर / पेशेवर' : lang==='gu' ? 'ફ્રીલાન્સર / વ્યાવસાયિક' : 'Professional / Freelancer (Sec 44ADA)', sub: lang==='hi' ? 'CA, डॉक्टर, वकील आदि · प्राप्तियां ₹75L तक' : lang==='gu' ? 'CA, ડૉક્ટર, વકીલ · ₹75L સુધી' : 'CA, Doctor, Lawyer, Consultant · Receipts ≤ ₹75L · 50% income' },
+    { id:'partner',    label: lang==='hi' ? 'फर्म में साझेदार'  : lang==='gu' ? 'ફર્મ ભાગીદાર'     : 'Partner in a Firm (ITR-3)',               sub: lang==='hi' ? 'ITR-3 · CA तैयार करेगा' : lang==='gu' ? 'ITR-3 · CA ભરશે' : 'Partnership firm share · CA will handle ITR-3' },
+    { id:'investor',   label: lang==='hi' ? 'निवेशक / FD / किराया': lang==='gu' ? 'રોકાણ / FD / ભાડું' : 'Investor / FD / Rental only (ITR-1/2)', sub: lang==='hi' ? 'वेतन नहीं · केवल ब्याज, लाभांश, किराया, CG' : lang==='gu' ? 'પગાર નહીં · ફક્ત FD, ભાડું, CG' : 'No salary or business · Interest, dividends, rent, capital gains' },
+  ];
+  const [selIncomeType, setSelIncomeType] = useState('salaried');
+
+  // ── Business sub-type ─────────────────────────────────────────────────────
   const BIZ_TYPES = [
     { id:'44AD',   label:'Presumptive — Business (Sec 44AD)',    sub:'Turnover ≤ ₹3 Cr · 6%/8% of turnover · No books needed' },
     { id:'44ADA',  label:'Presumptive — Professional (Sec 44ADA)',sub:'Receipts ≤ ₹75L · 50% of receipts · No books needed' },
@@ -1167,6 +1204,63 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
   const [bsDebtors,   setBsDebtors]   = useState(0);
   const [bsCreditors, setBsCreditors] = useState(0);
   const [bsCash,      setBsCash]      = useState(0);
+
+  function handleIncomeTypeConfirm() {
+    const sel = INCOME_TYPES.find(t => t.id === selIncomeType);
+    addUser(sel?.label || selIncomeType);
+    if (selIncomeType === 'salaried') {
+      setTaxProfile('salaried');
+      setStep(S.FORM16);
+      const wLang = lang || 'en';
+      addAI(
+        <>
+          <p style={{ marginBottom:8 }}>
+            {wLang==='hi' ? 'आपका Form 16 अपलोड करें — यह TDS और वेतन विवरण के साथ आता है।'
+            : wLang==='gu' ? 'Form 16 અપલોડ કરો — TDS અને પગારની વિગત સાથે.'
+            : 'Please upload your Form 16 — it comes from your employer and contains TDS and salary details.'}
+          </p>
+          <p style={{ fontSize:12, color:'var(--text-muted)' }}>
+            {wLang==='hi' ? 'आपका नियोक्ता मार्च या अप्रैल में यह देता है।'
+            : wLang==='gu' ? 'તમારા એમ્પ્લોયર તરફથી માર્ચ-એપ્રિલ મળે.'
+            : 'Provided by your employer, usually in March or April.'}
+          </p>
+        </>, null
+      );
+    } else if (selIncomeType === 'investor') {
+      setTaxProfile('salaried'); // ITR-1 path
+      setStep(S.INCOME_CONFIRM);
+      const wLang = lang || 'en';
+      addAI(
+        <p>
+          {wLang==='hi' ? 'आपकी कोई अन्य आय है? ब्याज, लाभांश, किराया, पूंजी लाभ?'
+          : wLang==='gu' ? 'કોઈ અન્ય આવક? FD વ્યાજ, ભાડું, CG?'
+          : 'What types of income do you have? Select all that apply:'}
+        </p>, null
+      );
+    } else if (selIncomeType === 'partner') {
+      setTaxProfile('partner');
+      setStep(S.DONE); // Partner — CA handles ITR-3
+      addAI(
+        <p>
+          {lang==='hi' ? 'फर्म साझेदारों के लिए ITR-3 CA द्वारा तैयार किया जाएगा। कृपया अपने CA से संपर्क करें।'
+          : lang==='gu' ? 'ભાગીદારી ફર્મ — ITR-3 CA તૈयार करशे.'
+          : 'For partnership firm partners, ITR-3 is prepared by your CA. Please share your firm details with us. Your CA at RB Shah & Associates will handle this return.'}
+        </p>, null
+      );
+    } else {
+      // Business or freelancer — go to business sub-type selection
+      setTaxProfile(selIncomeType);
+      setStep(S.BIZ_TYPE);
+      const wLang = lang || 'en';
+      addAI(
+        <p>
+          {wLang==='hi' ? 'आप कौन सा विकल्प चुनना चाहते हैं?'
+          : wLang==='gu' ? 'કઈ પ્રકારની ગણતરી?'
+          : 'How is your business income calculated?'}
+        </p>, null
+      );
+    }
+  }
 
   function handleBizConfirm() {
     addUser(BIZ_TYPES.find(b=>b.id===selBizType)?.label || selBizType);
@@ -1403,11 +1497,12 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
       setPanError('');
       const langNow = localStorage.getItem('taxtalk_lang') || 'en';
       ask(
-        <p>
-          {langNow==='hi' ? 'आपका <strong>PAN number</strong> क्या है? (10 अंक, जैसे ABCDE1234F)'
-          : langNow==='gu' ? 'તમારો <strong>PAN number</strong> શું છે? (10 અક્ષર, જેવા ABCDE1234F)'
-          : 'What is your <strong>PAN number</strong>? (10 characters, e.g. ABCDE1234F)'}
-        </p>, 'pan_collect_pan', true
+        langNow==='hi'
+          ? <p>आपका <strong>PAN number</strong> क्या है? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(10 अंक, जैसे ABCDE1234F)</span></p>
+          : langNow==='gu'
+          ? <p>તમારો <strong>PAN number</strong> શું છે? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(10 અક્ષર, જેવા ABCDE1234F)</span></p>
+          : <p>What is your <strong>PAN number</strong>? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(10 characters, e.g. ABCDE1234F)</span></p>,
+        'pan_collect_pan', true
       );
       return;
     }
@@ -1436,11 +1531,12 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
       );
       setTimeout(() => {
         ask(
-          <p>
-            {langNow==='hi' ? 'आपकी <strong>जन्म तिथि</strong> क्या है? (DD/MM/YYYY प्रारूप)'
-            : langNow==='gu' ? 'તમારી <strong>જન્મ તારીખ</strong> શું છે? (DD/MM/YYYY)'
-            : 'What is your <strong>date of birth</strong>? (DD/MM/YYYY)'}
-          </p>, 'pan_collect_dob', true
+          langNow==='hi'
+            ? <p>आपकी <strong>जन्म तिथि</strong> क्या है? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(DD/MM/YYYY)</span></p>
+            : langNow==='gu'
+            ? <p>તમારી <strong>જન્મ તારીખ</strong> શું છે? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(DD/MM/YYYY)</span></p>
+            : <p>What is your <strong>date of birth</strong>? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(DD/MM/YYYY)</span></p>,
+          'pan_collect_dob', true
         );
       }, 800);
       return;
@@ -1514,9 +1610,25 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
     if (ctx === 'manual_phone') {
       setManualPhone(String(val));
       setIdentity({ name:manualName, pan:manualPAN, dob:manualDOB, phone:String(val), email:'', address:'' });
+      const wLang2 = localStorage.getItem('taxtalk_lang') || 'en';
       addAI(
-        <p>Got it. You can upload your AIS / Form 16 at any time using the upload button in the chat bar.</p>,
-        () => { setTaxProfile(null); setStep(S.BIZ_TYPE); addAI(<p>What type of income do you primarily have?</p>, null); }
+        <p>
+          {wLang2==='hi' ? 'ठीक है! आप कभी भी ऊपर के बटन से AIS / Form 16 अपलोड कर सकते हैं।'
+          : wLang2==='gu' ? 'ઠીક છે! ઉપરના બટનથી AIS / Form 16 ગમે ત્યારે અપલોડ કરી શકો.'
+          : 'Got it. You can upload AIS or Form 16 any time using the upload button in the chat.'}
+        </p>,
+        () => {
+          setTaxProfile(null);
+          setStep(S.PROFILE_SELECT);
+          const wLang3 = localStorage.getItem('taxtalk_lang') || 'en';
+          addAI(
+            <p>
+              {wLang3==='hi' ? 'आपकी मुख्य आय का स्रोत क्या है?'
+              : wLang3==='gu' ? 'તમારી મુખ્ય આવક શું છે?'
+              : 'What is your primary source of income this year?'}
+            </p>, null
+          );
+        }
       );
       return;
     }
@@ -1936,7 +2048,7 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
           )}
           {/* Structured controls — hidden by default, shown when toggled */}
           {(showStructured || step === S.WELCOME || step === S.AIS_UPLOAD || step === S.COMPUTATION ||
-            step === S.AIS_CONFIRM || step === S.INCOME_CONFIRM || step === S.CG_COLLECT ||
+            step === S.PROFILE_SELECT || step === S.AIS_CONFIRM || step === S.INCOME_CONFIRM || step === S.CG_COLLECT ||
             step === S.CG_IMPORT || step === S.DED_80C || step === S.DED_OTHER || step === S.HP_TYPE ||
             step === S.TAXES_CONFIRM || step === S.BIZ_TYPE || step === S.FORM16 || step === S.DONE || showInput) && (
           <>
@@ -2033,17 +2145,35 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
             </div>
           )}
 
-          {/* Business type */}
+          {/* Income type selection — ALL types (salary, business, etc.) */}
+          {step === S.PROFILE_SELECT && (
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {INCOME_TYPES.map(t => (
+                <button key={t.id} onClick={() => setSelIncomeType(t.id)}
+                  style={{ padding:'12px 16px', borderRadius:'var(--radius-md)', border:`1.5px solid ${selIncomeType===t.id?'var(--brand)':'var(--border-strong)'}`, background:selIncomeType===t.id?'var(--brand-light)':'var(--surface)', textAlign:'left', cursor:'pointer', transition:'all 0.15s' }}>
+                  <div style={{ fontWeight:600, fontSize:14, color:selIncomeType===t.id?'var(--brand)':'var(--text-primary)' }}>{t.label}</div>
+                  <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:3, lineHeight:1.4 }}>{t.sub}</div>
+                </button>
+              ))}
+              <Button variant="primary" onClick={handleIncomeTypeConfirm} style={{ alignSelf:'flex-end' }}>
+                {T('common.continue')} <ChevronRight size={15}/>
+              </Button>
+            </div>
+          )}
+
+          {/* Business sub-type — 44AD / 44ADA / Actual (only shown after business/freelancer selected) */}
           {step === S.BIZ_TYPE && (
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               {BIZ_TYPES.map(b => (
                 <button key={b.id} onClick={() => setSelBizType(b.id)}
-                  style={{ padding:'11px 16px', borderRadius:'var(--radius-md)', border:`1.5px solid ${selBizType===b.id?'var(--brand)':'var(--border-strong)'}`, background:selBizType===b.id?'var(--brand-light)':'var(--surface)', textAlign:'left', cursor:'pointer' }}>
-                  <div style={{ fontWeight:600, fontSize:13, color:selBizType===b.id?'var(--brand)':'var(--text-primary)' }}>{b.label}</div>
-                  <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>{b.sub}</div>
+                  style={{ padding:'12px 16px', borderRadius:'var(--radius-md)', border:`1.5px solid ${selBizType===b.id?'var(--brand)':'var(--border-strong)'}`, background:selBizType===b.id?'var(--brand-light)':'var(--surface)', textAlign:'left', cursor:'pointer', transition:'all 0.15s' }}>
+                  <div style={{ fontWeight:600, fontSize:14, color:selBizType===b.id?'var(--brand)':'var(--text-primary)' }}>{b.label}</div>
+                  <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:3, lineHeight:1.4 }}>{b.sub}</div>
                 </button>
               ))}
-              <Button variant="primary" onClick={handleBizConfirm} style={{ alignSelf:'flex-end' }}>Continue <ChevronRight size={15}/></Button>
+              <Button variant="primary" onClick={handleBizConfirm} style={{ alignSelf:'flex-end' }}>
+                {T('common.continue')} <ChevronRight size={15}/>
+              </Button>
             </div>
           )}
 
