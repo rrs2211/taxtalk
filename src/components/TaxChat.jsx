@@ -6,11 +6,13 @@ import CGCollector from './CGCollector.jsx';
 import CGTransactionImporter from './CGTransactionImporter.jsx';
 import { Button, Card, Badge } from './UI.jsx';
 import { useReturn } from '../hooks/useReturn.js';
-import { supabase } from '../lib/supabase.js';
+import { supabase, lockIdentity } from '../lib/supabase.js';
 import { uploadDocument, validateFile } from '../lib/storage.js';
 
 // ── Steps ─────────────────────────────────────────────────────────────────────
 const S = {
+  // PAN collection — first time only, before anything else
+  PAN_COLLECT: 'pan_collect',
   // Welcome — offer prev year ITR upload (optional)
   WELCOME: 'welcome',
   PREV_ITR: 'prev_itr',          // optional: upload last year ITR/computation
@@ -345,6 +347,41 @@ function ComputationCard({ initialData, initialInputs, aisFlags, onApprove, subm
 }
 
 
+
+// ─── PAN Validation ──────────────────────────────────────────────────────────
+// PAN format: AAAAA9999A — 5 letters, 4 digits, 1 letter (10 chars total)
+// 4th character = entity type:
+//   P = Individual (Person)       C = Company        H = HUF
+//   F = Firm                      A = AOP/BOI        T = Trust
+//   B = Body of Individuals        J = Artificial juridical person
+//   G = Government                L = Local authority
+
+const PAN_ENTITY_CHARS = {
+  P: 'Individual (Person)',
+  C: 'Company',
+  H: 'HUF (Hindu Undivided Family)',
+  F: 'Firm / Partnership',
+  A: 'AOP / BOI',
+  T: 'Trust',
+  B: 'Body of Individuals',
+  J: 'Artificial Juridical Person',
+  G: 'Government',
+  L: 'Local Authority',
+};
+const PAN_REGEX = /^[A-Z]{3}[PCHFATBJGL][A-Z]\d{4}[A-Z]$/;
+
+export function validatePAN(pan) {
+  if (!pan || typeof pan !== 'string') return { valid: false, error: 'PAN is required' };
+  const p = pan.trim().toUpperCase();
+  if (p.length !== 10) return { valid: false, error: `PAN must be exactly 10 characters (entered: ${p.length})` };
+  if (!/^[A-Z]{5}/.test(p)) return { valid: false, error: 'First 5 characters of PAN must be letters' };
+  if (!/\d{4}/.test(p.slice(5,9))) return { valid: false, error: 'Characters 6–9 must be digits' };
+  if (!/[A-Z]$/.test(p)) return { valid: false, error: 'Last character must be a letter' };
+  const entityChar = p[3];
+  if (!PAN_ENTITY_CHARS[entityChar]) return { valid: false, error: `4th character "${entityChar}" is not a valid entity type` };
+  return { valid: true, pan: p, entityType: PAN_ENTITY_CHARS[entityChar] };
+}
+
 // ─── Unified input bar ────────────────────────────────────────────────────────
 // Combines: structured amount entry, free-text chat, and document upload
 // All in ONE bar so there's never two inputs on screen simultaneously
@@ -416,12 +453,32 @@ function UnifiedInput({
         const { extracted } = await res.json();
         setProcessing(null);
         if (extracted) {
+          // ── PAN mismatch check ─────────────────────────────────────────────
+          const profilePAN  = (profile?.pan || manualPAN || '').toUpperCase();
+          const extractedPAN = (extracted.pan || '').toUpperCase();
+          if (extractedPAN && profilePAN && extractedPAN !== profilePAN) {
+            addAI(
+              <div style={{ background:'var(--warn-light)', border:'1px solid var(--warn)', borderRadius:8, padding:'10px 14px' }}>
+                <p style={{ fontWeight:600, color:'var(--warn)', marginBottom:6 }}>⚠️ PAN mismatch detected</p>
+                <p style={{ fontSize:13 }}>This document belongs to PAN <strong>{extractedPAN}</strong>, but your account PAN is <strong>{profilePAN}</strong>.</p>
+                <p style={{ fontSize:12, color:'var(--text-secondary)', marginTop:6 }}>This document appears to be for a <strong>different person</strong>. Please confirm below.</p>
+              </div>, null
+            );
+            // Show confirmation buttons — these appear in the structured controls
+            // We use a special step to show confirm/reject buttons
+            setInputCtx('pan_mismatch_confirm_' + doc.id);
+            setTimeout(() => {
+              addAI(<p>Is this document yours (you may have multiple PANs or a correction)?</p>, null);
+            }, 600);
+            return; // Don't apply data until confirmed
+          }
+          // ── Apply extracted data ───────────────────────────────────────────
           const updates = [];
-          if (extracted.total_tds > 0)          { setTds(extracted.total_tds); updates.push(`TDS: ${formatINR(extracted.total_tds)}`); }
-          if (extracted.total_advance_tax > 0)  { setAdvTax(extracted.total_advance_tax); updates.push(`Advance tax: ${formatINR(extracted.total_advance_tax)}`); }
-          if (extracted.gross_salary > 0)        updates.push(`Salary: ${formatINR(extracted.gross_salary)}`);
+          if (extracted.total_tds > 0)         { setTds(extracted.total_tds); updates.push(`TDS: ${formatINR(extracted.total_tds)}`); }
+          if (extracted.total_advance_tax > 0) { setAdvTax(extracted.total_advance_tax); updates.push(`Advance tax: ${formatINR(extracted.total_advance_tax)}`); }
+          if (extracted.gross_salary > 0)       updates.push(`Salary: ${formatINR(extracted.gross_salary)}`);
           const summary = updates.length > 0 ? updates.join(' · ') : 'Data extracted';
-          addAI(<p>✅ <strong>{docType === 'ais' ? 'AIS' : docType === 'form16' ? 'Form 16' : 'Document'}</strong> read successfully — {summary}. All figures have been updated.</p>, null);
+          addAI(<p>✅ <strong>{docType === 'ais' ? 'AIS' : docType === 'form16' ? 'Form 16' : 'Document'}</strong> read — {summary}. All figures updated.</p>, null);
         }
       } else {
         addAI(<p>✅ Document saved. Your CA will review it along with your return.</p>, null);
@@ -559,7 +616,7 @@ function UnifiedInput({
 }
 
 // ── Main TaxChat ──────────────────────────────────────────────────────────────
-export default function TaxChat({ userId, lang: langProp }) {
+export default function TaxChat({ userId, lang: langProp, profile: initialProfile, onProfileUpdate }) {
   const { returnRecord, loadingReturn, saveComputation, persistMessage, submitToCA } = useReturn(userId);
   const { lang, t: tr }   = useTranslation();
 
@@ -621,7 +678,9 @@ export default function TaxChat({ userId, lang: langProp }) {
   const [showDocTray, setShowDocTray]   = useState(false);
   const [showStructured, setShowStructured] = useState(false); // toggle structured form vs chat
   // Manual identity (when no AIS)
+  const [profile,      setProfile]       = useState(initialProfile || null);
   const [manualName,  setManualName]    = useState('');
+  const [panError,    setPanError]      = useState('');
   const [manualPAN,   setManualPAN]     = useState('');
   const [manualDOB,   setManualDOB]     = useState('');
   const [manualPhone, setManualPhone]   = useState('');
@@ -635,9 +694,37 @@ export default function TaxChat({ userId, lang: langProp }) {
   useEffect(() => {
     if (loadingReturn) return;
     const t = setTimeout(() => {
-      setStep(S.WELCOME);
       const wLang = localStorage.getItem('taxtalk_lang') || 'en';
       const W = (k) => translate(k, wLang);
+      const prof = initialProfile || profile;
+
+      // If PAN/name/DOB not yet in profile — collect FIRST before anything else
+      if (!prof?.pan || !prof?.full_name || !prof?.dob) {
+        setStep(S.PAN_COLLECT);
+        addAI(
+          <>
+            <p style={{ marginBottom:8 }}>{W('chat.welcome_1')}</p>
+            <p style={{ marginBottom:8 }}>
+              {wLang==='hi' ? 'शुरू करने से पहले, मुझे आपका PAN Card विवरण चाहिए।' :
+               wLang==='gu' ? 'શરૂ કરતા પહેલાં, મને તમારી PAN Card ની વિગત જોઈએ.' :
+               'Before we begin, I need your PAN Card details. This identifies you and cannot be changed later.'}
+            </p>
+          </>, null
+        );
+        setTimeout(() => {
+          ask(
+            <p>
+              {wLang==='hi' ? 'आपका <strong>पूरा नाम</strong> (PAN Card के अनुसार)?'
+              : wLang==='gu' ? 'તમારું <strong>પૂરું નામ</strong> (PAN Card પ્રમાણે)?'
+              : 'What is your <strong>full name</strong> as on your PAN card?'}
+            </p>, 'pan_collect_name', true
+          );
+        }, 800);
+        return;
+      }
+
+      // Identity is known — proceed to normal welcome
+      setStep(S.WELCOME);
       addAI(
         <>
           <p style={{ marginBottom:8 }}>{W('chat.welcome_1')}</p>
@@ -1303,34 +1390,132 @@ export default function TaxChat({ userId, lang: langProp }) {
   }
 
   // ── Amount handler ──────────────────────────────────────────────────────────
-  function handleAmount() {
+  async function handleAmount() {
     const isText = isTextInput;
     const val  = isText ? inputValue.trim() : (parseInt(inputValue.replace(/[^0-9]/g,'')) || 0);
     setShowInput(false); setInputVal(''); setIsTextInput(false);
     addUser(isText ? String(val) : `₹${Number(val).toLocaleString('en-IN')}`);
     const ctx = inputCtx;
 
+    // ── PAN collection flow (first time, before any filing) ─────────────────
+    if (ctx === 'pan_collect_name') {
+      setManualName(String(val));
+      setPanError('');
+      const langNow = localStorage.getItem('taxtalk_lang') || 'en';
+      ask(
+        <p>
+          {langNow==='hi' ? 'आपका <strong>PAN number</strong> क्या है? (10 अंक, जैसे ABCDE1234F)'
+          : langNow==='gu' ? 'તમારો <strong>PAN number</strong> શું છે? (10 અક્ષર, જેવા ABCDE1234F)'
+          : 'What is your <strong>PAN number</strong>? (10 characters, e.g. ABCDE1234F)'}
+        </p>, 'pan_collect_pan', true
+      );
+      return;
+    }
+    if (ctx === 'pan_collect_pan') {
+      const panVal = String(val).toUpperCase().trim();
+      const panCheck = validatePAN(panVal);
+      if (!panCheck.valid) {
+        setPanError(panCheck.error);
+        addAI(
+          <div style={{ color:'var(--danger)' }}>
+            <p>⚠️ Invalid PAN: <strong>{panCheck.error}</strong></p>
+            <p style={{ fontSize:12, marginTop:4 }}>PAN format: first 5 letters · 4 digits · 1 letter (total 10 characters). The 4th character indicates the entity type (P = Individual).</p>
+          </div>, null
+        );
+        setTimeout(() => {
+          ask(<p>Please enter a valid <strong>PAN number</strong>:</p>, 'pan_collect_pan', true);
+        }, 1000);
+        return;
+      }
+      setPanError('');
+      setManualPAN(panVal);
+      const langNow = localStorage.getItem('taxtalk_lang') || 'en';
+      // Show entity type confirmation
+      addAI(
+        <p>PAN accepted — <strong>{panVal}</strong> ({panCheck.entityType})</p>, null
+      );
+      setTimeout(() => {
+        ask(
+          <p>
+            {langNow==='hi' ? 'आपकी <strong>जन्म तिथि</strong> क्या है? (DD/MM/YYYY प्रारूप)'
+            : langNow==='gu' ? 'તમારી <strong>જન્મ તારીખ</strong> શું છે? (DD/MM/YYYY)'
+            : 'What is your <strong>date of birth</strong>? (DD/MM/YYYY)'}
+          </p>, 'pan_collect_dob', true
+        );
+      }, 800);
+      return;
+    }
+    if (ctx === 'pan_collect_dob') {
+      const dobVal = String(val).trim();
+      setManualDOB(dobVal);
+      // Save to profile immediately — these are locked once set
+      try {
+        const saved = await lockIdentity(userId, { full_name: manualName, pan: manualPAN, dob: dobVal });
+        setProfile(saved);
+        if (onProfileUpdate) onProfileUpdate();
+        const langNow = localStorage.getItem('taxtalk_lang') || 'en';
+        addAI(
+          <>
+            <p style={{ marginBottom:6 }}>
+              {langNow==='hi' ? '✅ आपकी पहचान सुरक्षित हो गई है।'
+              : langNow==='gu' ? '✅ તમારી ઓળખ સુરક્ષિત સંગ્રહ કરાઈ.'
+              : '✅ Identity saved and locked.'}
+            </p>
+            <div style={{ border:'1px solid var(--border)', borderRadius:8, overflow:'hidden', fontSize:13 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 12px', borderBottom:'1px solid var(--border)' }}><span style={{ color:'var(--text-muted)' }}>Name</span><strong>{manualName}</strong></div>
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 12px', borderBottom:'1px solid var(--border)' }}><span style={{ color:'var(--text-muted)' }}>PAN</span><strong style={{ fontFamily:'monospace' }}>{manualPAN}</strong></div>
+              <div style={{ display:'flex', justifyContent:'space-between', padding:'7px 12px' }}><span style={{ color:'var(--text-muted)' }}>Date of birth</span><strong>{dobVal}</strong></div>
+            </div>
+            <p style={{ fontSize:12, color:'var(--text-muted)', marginTop:6 }}>
+              {langNow==='hi' ? 'ये विवरण अब बदले नहीं जा सकते।' : langNow==='gu' ? 'આ વિગતો હવે બદલી શકાશે નહીં.' : 'These details are now locked and cannot be changed.'}
+            </p>
+          </>,
+          () => { setStep(S.WELCOME); }
+        );
+        // Now show welcome
+        setTimeout(() => {
+          const W = (k) => translate(k, langNow);
+          addAI(
+            <>
+              <p style={{ marginBottom:8 }}>{W('chat.welcome_2')}</p>
+              <p style={{ fontSize:13, color:'var(--text-muted)' }}>{W('chat.welcome_3')}</p>
+            </>, null
+          );
+        }, 2000);
+      } catch(e) {
+        addAI(<p style={{ color:'var(--danger)' }}>Could not save identity: {e.message}. Please try again.</p>, null);
+      }
+      return;
+    }
+
+    // ── Manual identity (legacy path when AIS skipped) ─────────────────────
     if (ctx === 'manual_name') {
       setManualName(String(val));
-      ask(<p>What is your <strong>PAN number</strong>? (10 characters)</p>, 'manual_pan', true);
+      ask(<p>What is your <strong>PAN number</strong>?</p>, 'pan_collect_pan', true);
       return;
     }
     if (ctx === 'manual_pan') {
-      setManualPAN(String(val).toUpperCase());
-      ask(<p>What is your <strong>date of birth</strong>? (DD/MM/YYYY)</p>, 'manual_dob', true);
+      const panVal = String(val).toUpperCase().trim();
+      const panCheck = validatePAN(panVal);
+      if (!panCheck.valid) {
+        addAI(<p style={{ color:'var(--danger)' }}>⚠️ {panCheck.error}</p>, null);
+        setTimeout(() => ask(<p>Please re-enter your <strong>PAN</strong>:</p>, 'manual_pan', true), 800);
+        return;
+      }
+      setManualPAN(panVal);
+      ask(<p>Date of birth? <span style={{ color:'var(--text-muted)', fontSize:12 }}>DD/MM/YYYY</span></p>, 'manual_dob', true);
       return;
     }
     if (ctx === 'manual_dob') {
       setManualDOB(String(val));
-      ask(<p>What is your <strong>mobile number</strong>?</p>, 'manual_phone', true);
+      ask(<p>Mobile number?</p>, 'manual_phone', true);
       return;
     }
     if (ctx === 'manual_phone') {
       setManualPhone(String(val));
-      // Pre-fill identity and proceed to profile selection
       setIdentity({ name:manualName, pan:manualPAN, dob:manualDOB, phone:String(val), email:'', address:'' });
       addAI(
-        <p style={{ marginBottom:8 }}>Got it. You can upload your AIS / Form 16 / any other document at any time from the upload tray at the top of this screen. Let us now choose your income type.</p>,
+        <p>Got it. You can upload your AIS / Form 16 at any time using the upload button in the chat bar.</p>,
         () => { setTaxProfile(null); setStep(S.BIZ_TYPE); addAI(<p>What type of income do you primarily have?</p>, null); }
       );
       return;
@@ -1448,7 +1633,7 @@ export default function TaxChat({ userId, lang: langProp }) {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
         body: JSON.stringify({
           message: msg,
-          lang: lang || 'en',
+          lang: langProp || lang || localStorage.getItem('taxtalk_lang') || 'en',
           conversationHistory: chatHistoryRef.current.slice(0, -1), // exclude current
           state: {
             step,

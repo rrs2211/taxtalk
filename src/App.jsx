@@ -132,7 +132,7 @@ export default function App() {
       <div className="page-full">
         {/* Chat tab */}
         <div style={{ display: view === 'chat' ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
-          <TaxChat userId={auth.user.id} lang={lang}/>
+          <TaxChat userId={auth.user.id} lang={lang} profile={auth.profile} onProfileUpdate={auth.refreshProfile}/>
         </div>
 
         {/* Inbox tab */}
@@ -194,7 +194,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Bottom tab bar */}
+      {/* Bottom tab bar — bottom on mobile, integrated in top nav on desktop via media query */}
       <nav className="bottom-nav">
         {TABS.map(tab => {
           const Icon = tab.icon;
@@ -202,7 +202,7 @@ export default function App() {
           return (
             <button key={tab.id} className="bottom-nav-item" onClick={() => setView(tab.id)}
               style={{ color: active ? 'var(--brand)' : 'var(--text-muted)' }}>
-              <Icon size={22} strokeWidth={active ? 2.5 : 1.8}/>
+              <Icon size={20} strokeWidth={active ? 2.5 : 1.8}/>
               <span className="nav-label">{tab.label}</span>
             </button>
           );

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, CheckCircle, Loader } from 'lucide-react';
 import { saveKYC } from '../lib/supabase.js';
+import { validatePAN } from './TaxChat.jsx';
 import { Button } from './UI.jsx';
 
 // ── Defined OUTSIDE component — prevents remount on every render ──────────────
@@ -38,6 +39,7 @@ const STATES = [
 export default function KYCScreen({ userId, existingProfile, onComplete }) {
   const p = existingProfile || {};
   const isEditing = !!p.kyc_complete;
+  const identityLocked = !!p.identity_locked; // PAN/name/DOB cannot be changed
 
   const [fullName,  setFullName]  = useState(p.full_name  || '');
   const [pan,       setPan]       = useState(p.pan        || '');
@@ -54,7 +56,8 @@ export default function KYCScreen({ userId, existingProfile, onComplete }) {
   function validate() {
     const e = {};
     if (!fullName.trim())                            e.fullName = 'Required';
-    if (!pan || pan.length !== 10)                   e.pan      = 'Enter valid 10-character PAN';
+    const panCheck = validatePAN(pan);
+    if (!panCheck.valid)                             e.pan = panCheck.error;
     if (!dob)                                        e.dob      = 'Required';
     if (!(phone.replace(/\D/g,'').length === 10))    e.phone    = 'Enter valid 10-digit mobile';
     return e;
@@ -112,20 +115,40 @@ export default function KYCScreen({ userId, existingProfile, onComplete }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
             <Field label="Full name (as per PAN) *" error={errors.fullName}>
               <input
-                style={errors.fullName ? INP_ERR_STYLE : INP_STYLE}
+                style={identityLocked ? { ...INP_STYLE, background:'var(--surface-3)', color:'var(--text-secondary)', cursor:'not-allowed' } : (errors.fullName ? INP_ERR_STYLE : INP_STYLE)}
                 value={fullName}
-                onChange={e => setFullName(e.target.value.toUpperCase())}
+                onChange={e => !identityLocked && setFullName(e.target.value.toUpperCase())}
                 placeholder="RAHUL KUMAR SHAH"
+                readOnly={identityLocked}
               />
+              {identityLocked && <div style={{ fontSize:11, color:'var(--brand)', marginTop:2 }}>🔒 Locked — name cannot be changed</div>}
             </Field>
             <Field label="PAN *" error={errors.pan}>
-              <input
-                style={errors.pan ? INP_ERR_STYLE : INP_STYLE}
-                value={pan}
-                onChange={e => setPan(e.target.value.toUpperCase())}
-                placeholder="ABCDE1234F"
-                maxLength={10}
-              />
+              <div style={{ position:'relative' }}>
+                <input
+                  style={identityLocked ? { ...INP_STYLE, background:'var(--surface-3)', color:'var(--text-secondary)', cursor:'not-allowed', fontFamily:'monospace', letterSpacing:'0.1em' } : (errors.pan ? INP_ERR_STYLE : { ...INP_STYLE, fontFamily:'monospace', letterSpacing:'0.08em' })}
+                  value={pan}
+                  onChange={e => !identityLocked && setPan(e.target.value.toUpperCase().slice(0, 10))}
+                  placeholder="ABCDE1234F"
+                  maxLength={10}
+                  readOnly={identityLocked}
+                />
+                {/* PAN character guide */}
+                {!identityLocked && pan.length === 10 && (() => {
+                  const check = validatePAN(pan);
+                  return check.valid ? (
+                    <div style={{ fontSize:11, color:'var(--success)', marginTop:2 }}>✓ Valid PAN — {check.entityType}</div>
+                  ) : (
+                    <div style={{ fontSize:11, color:'var(--danger)', marginTop:2 }}>⚠️ {check.error}</div>
+                  );
+                })()}
+                {!identityLocked && pan.length > 0 && pan.length < 10 && (
+                  <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>
+                    {pan.length}/10 — Format: AAAAA9999A (5 letters · 4 digits · 1 letter, 4th letter = entity type)
+                  </div>
+                )}
+              </div>
+              {identityLocked && <div style={{ fontSize:11, color:'var(--brand)', marginTop:2 }}>🔒 Locked — PAN cannot be changed</div>}
             </Field>
           </div>
 
@@ -133,10 +156,12 @@ export default function KYCScreen({ userId, existingProfile, onComplete }) {
             <Field label="Date of birth *" error={errors.dob}>
               <input
                 type="date"
-                style={errors.dob ? INP_ERR_STYLE : INP_STYLE}
+                style={identityLocked ? { ...INP_STYLE, background:'var(--surface-3)', color:'var(--text-secondary)', cursor:'not-allowed' } : (errors.dob ? INP_ERR_STYLE : INP_STYLE)}
                 value={dob}
-                onChange={e => setDob(e.target.value)}
+                onChange={e => !identityLocked && setDob(e.target.value)}
+                readOnly={identityLocked}
               />
+              {identityLocked && <div style={{ fontSize:11, color:'var(--brand)', marginTop:2 }}>🔒 Locked</div>}
             </Field>
             <Field label="Mobile number *" error={errors.phone}>
               <input

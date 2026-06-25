@@ -459,16 +459,39 @@ textarea {
 .min-w-0 { min-width: 0; }
 .overflow-hidden { overflow: hidden; }
 
-/* ── Desktop adjustments ───────────────────────────────────────────────────── */
+/* ── Responsive layout — full width on all screen sizes ────────────────────── */
+/* Mobile: single column, touch-friendly */
+/* Tablet/Desktop: full width with comfortable max, two-column possible */
+
 @media (min-width: 768px) {
-  .app-shell {
-    max-width: 480px;
-    margin:    0 auto;
-    /* Show subtle shadow on desktop so it looks like a phone app */
-    box-shadow: 0 0 0 1px var(--border), 0 8px 32px rgba(0,0,0,0.08);
+  :root {
+    --nav-height:  58px;
+    --tab-height:  60px;
   }
-  /* Desktop background behind the app */
-  body {
-    background: var(--surface-3);
+  /* Reset iOS-specific font size override on desktop */
+  input, textarea, select { font-size: 14px !important; }
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="date"],
+  select, textarea { font-size: 14px !important; }
+
+  /* Larger chat bubbles on desktop */
+  .bubble-ai   { max-width: 72%; font-size: 14px; }
+  .bubble-user { max-width: 60%; font-size: 14px; }
+
+  /* Comfortable content padding */
+  .chat-wrap { padding: 20px 24px; }
+  .controls-panel { padding: 12px 24px 14px; }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --nav-height:  60px;
+    --tab-height:  56px;
   }
+  /* On large screens show the top nav tabs instead of bottom bar */
+  .top-nav { padding-left: 32px; padding-right: 32px; }
 }

@@ -524,3 +524,28 @@ export async function getMyReturnsWithDocs(userId) {
   if (error) throw error;
   return data || [];
 }
+
+// ─── Lock identity — PAN, name, DOB once set cannot be changed ───────────────
+
+export async function lockIdentity(userId, { full_name, pan, dob }) {
+  // Only sets these fields; once identity_locked=true, these are immutable via RLS
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ full_name, pan: pan.toUpperCase(), dob, identity_locked: true })
+    .eq('id', userId)
+    .eq('identity_locked', false)  // RLS: only update if not already locked
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function getProfileForFiling(userId) {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, pan, dob, phone, aadhaar, email, city, state_code, pin_code, locality, kyc_complete, identity_locked, role')
+    .eq('id', userId)
+    .single();
+  if (error) throw error;
+  return data;
+}
