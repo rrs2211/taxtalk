@@ -597,3 +597,73 @@ export async function hasAcceptedTerms(userId) {
   return data?.terms_accepted === true;
 }
 
+
+// ─── Challans (advance tax / self-assessment) ─────────────────────────────────
+export async function getChallansForReturn(returnId) {
+  const { data, error } = await supabase.from('challans')
+    .select('*').eq('return_id', returnId).order('payment_date', { ascending: true });
+  if (error) { console.warn('challans fetch error:', error.message); return []; }
+  return data || [];
+}
+
+export async function addChallanEntry(returnId, userId, challan) {
+  const { data, error } = await supabase.from('challans')
+    .insert({ return_id: returnId, user_id: userId, ...challan }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteChallanEntry(challanId) {
+  const { error } = await supabase.from('challans').delete().eq('id', challanId);
+  if (error) throw error;
+}
+
+// ─── TDS2 entries (non-salary TDS) ───────────────────────────────────────────
+export async function getTDS2Entries(returnId) {
+  const { data, error } = await supabase.from('tds2_entries')
+    .select('*').eq('return_id', returnId).order('created_at', { ascending: true });
+  if (error) { console.warn('tds2 fetch error:', error.message); return []; }
+  return data || [];
+}
+
+export async function saveTDS2Entry(returnId, userId, entry) {
+  const { data, error } = await supabase.from('tds2_entries')
+    .insert({ return_id: returnId, user_id: userId, ...entry }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+// ─── Schedule 80G donees ──────────────────────────────────────────────────────
+export async function get80GDonees(returnId) {
+  const { data, error } = await supabase.from('schedule_80g')
+    .select('*').eq('return_id', returnId).order('created_at', { ascending: true });
+  if (error) { console.warn('80G fetch error:', error.message); return []; }
+  return data || [];
+}
+
+export async function save80GDonee(returnId, userId, donee) {
+  const { data, error } = await supabase.from('schedule_80g')
+    .insert({ return_id: returnId, user_id: userId, ...donee }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function delete80GDonee(id) {
+  const { error } = await supabase.from('schedule_80g').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ─── Schedule 80D insurers ────────────────────────────────────────────────────
+export async function get80DEntries(returnId) {
+  const { data, error } = await supabase.from('schedule_80d')
+    .select('*').eq('return_id', returnId).order('created_at', { ascending: true });
+  if (error) { console.warn('80D fetch error:', error.message); return []; }
+  return data || [];
+}
+
+export async function save80DEntry(returnId, userId, entry) {
+  const { data, error } = await supabase.from('schedule_80d')
+    .insert({ return_id: returnId, user_id: userId, ...entry }).select().single();
+  if (error) throw error;
+  return data;
+}

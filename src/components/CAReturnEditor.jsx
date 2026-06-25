@@ -62,7 +62,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
 
   // ── Income ────────────────────────────────────────────────────
   const [grossSalary,    setGrossSalary]    = useState(comp.grossSalary    || 0);
-  const [stdDed,         setStdDed]         = useState(comp.standardDeduction || 75000);
+  const [stdDed,         setStdDed]         = useState(comp.standardDeduction || 0); // Computed per regime in liveComp
   const [profTax,        setProfTax]        = useState(comp.professionalTax || 0);
   const [businessIncome, setBizIncome]      = useState(comp.businessIncome || 0);
   const [bizTurnover,    setBizTurnover]    = useState(comp.bizTurnover    || 0);
@@ -98,10 +98,19 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
 
   // ── Taxes paid ────────────────────────────────────────────────
   const [tds,          setTds]          = useState(comp.tdsDeducted    || 0);
+  const [tdsNonSal,    setTdsNonSal]    = useState(comp.tdsNonSalary  || 0);
   const [advanceTax,   setAdvanceTax]   = useState(comp.advanceTax     || 0);
   const [selfAssess,   setSelfAssess]   = useState(comp.selfAssessment || 0);
   const [ageGroup,     setAgeGroup]     = useState(comp.ageGroup       || '<60');
   const [regime,       setRegime]       = useState(comp.betterRegime   || 'new');
+  const [perquisites,  setPerquisites]  = useState(comp.perquisites    || 0);
+  const [profitsInLieu,setProfitsInLieu]= useState(comp.profitsInLieu  || 0);
+  const [familyPension,setFamPension]   = useState(comp.familyPension  || 0);
+  const [d80CCD1,      setD80CCD1]      = useState(comp.deductions80CCD1  || 0);
+  const [d80CCD1B,     setD80CCD1B]     = useState(comp.deductions80CCD1B || 0);
+  const [d80CCD2,      setD80CCD2]      = useState(comp.deductions80CCD2  || 0);
+  const [empCat,       setEmpCat]       = useState(comp.employerCategory   || 'OTH');
+  const [challans,     setChallans]     = useState(comp.challans || []);
 
   // ── Bank accounts ─────────────────────────────────────────────
   const initBanks = (comp.bankAccounts && comp.bankAccounts.length > 0)
@@ -144,6 +153,8 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
     houseProperty, capitalGains, deductions80C: d80C, deductions80D: d80D,
     deductions24b: d24b, deductions80E: d80E,
     deductions80TTA: Math.min(savingsInt, 10000), deductions80G: d80G,
+    deductions80CCD1: d80CCD1, deductions80CCD1B: d80CCD1B, deductions80CCD2: d80CCD2,
+    tdsNonSalary: tdsNonSal, employerCategory: empCat, challans,
     tdsDeducted: tds, advanceTax, selfAssessment: selfAssess, ageGroup,
   });
 
@@ -179,6 +190,10 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
         otherIncome: otherOSIncome, houseProperty, capitalGains,
         deductions80C: d80C, deductions80D: d80D, deductions24b: d24b,
         deductions80E: d80E, deductions80TTA: Math.min(savingsInt, 10000), deductions80G: d80G,
+        deductions80CCD1: d80CCD1, deductions80CCD1B: d80CCD1B, deductions80CCD2: d80CCD2,
+        tdsNonSalary: tdsNonSal, employerCategory: empCat, challans,
+        perquisites, profitsInLieu, familyPension,
+        stdDedOld: liveComp.stdDedOld, stdDedNew: liveComp.stdDedNew,
         tdsDeducted: tds, advanceTax, selfAssessment: selfAssess, ageGroup,
         employerTAN: empTAN, employerName: empName,
         bankAccounts, bsCapital, bsBank, bsCash, bsDebtors, bsCreditors,
@@ -240,7 +255,9 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
       <SEC t="Salary income" />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
         <NumField label="Gross salary" value={grossSalary} onChange={setGrossSalary} />
-        <NumField label="Standard deduction" value={stdDed} onChange={setStdDed} note="(16ia)" max={75000} />
+        <NumField label="Perquisites u/s 17(2)" value={perquisites} onChange={setPerquisites} note="(ESOP, car, etc.)" />
+        <NumField label="Profits in lieu of salary u/s 17(3)" value={profitsInLieu} onChange={setProfitsInLieu} />
+        <div style={{ fontSize:12, color:'var(--text-muted)', padding:'6px 0' }}>Standard deduction: auto-computed — ₹50,000 (old regime) / ₹75,000 (new regime) [Rules A-112, A-215]</div>
         <NumField label="Professional tax" value={profTax} onChange={setProfTax} note="(16iii)" max={2500} />
         <div />
         <TxtField label="Employer TAN" value={empTAN} onChange={setEmpTAN} placeholder="AHMA12345A" upper />
@@ -281,6 +298,7 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
         <NumField label="FD / RD / term deposit interest" value={fdInt} onChange={setFdInt} />
         <NumField label="Dividends" value={dividendIncome} onChange={setDividend} />
         <NumField label="Other income (gifts, misc)" value={otherOSIncome} onChange={setOtherOS} />
+        <NumField label="Family pension received (u/s 57(iia))" value={familyPension} onChange={setFamPension} note="Deduction auto-computed: 1/3rd, max ₹15K old / ₹25K new" />
       </div>
 
       {/* ── House property ── */}
@@ -318,7 +336,10 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
       <SEC t="Deductions — Chapter VI-A (old regime only)" />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
         <NumField label="Section 80C (PPF, LIC, ELSS, home loan principal)" value={d80C} onChange={setD80C} max={150000} />
-        <NumField label="Section 80D (mediclaim premium)" value={d80D} onChange={setD80D} max={75000} />
+        <NumField label="NPS employee contribution — Sec 80CCD(1)" value={d80CCD1} onChange={setD80CCD1} note="Combined 80C+CCD(1) ≤ ₹1.5L [Rule A-1]" />
+        <NumField label="Additional NPS — Sec 80CCD(1B)" value={d80CCD1B} onChange={setD80CCD1B} max={50000} note="Max ₹50,000 [Rule A-115]" />
+        <NumField label="Employer NPS contribution — Sec 80CCD(2)" value={d80CCD2} onChange={setD80CCD2} note="Allowed in both regimes [Rule A-216]" />
+        <NumField label="Section 80D (mediclaim — self+family+parents)" value={d80D} onChange={setD80D} max={100000} note="Max ₹1,00,000 combined" />
         {!hpEnabled && <NumField label="Home loan interest — Sec 24(b)" value={d24b} onChange={setD24b} max={200000} />}
         <NumField label="Education loan interest — Sec 80E" value={d80E} onChange={setD80E} />
         <NumField label="Savings bank interest — Sec 80TTA" value={d80TTA} onChange={setD80TTA} max={10000} />
@@ -331,7 +352,8 @@ export default function CAReturnEditor({ ret, kycData, onSave, onClose }) {
       {/* ── Taxes paid ── */}
       <SEC t="Taxes already paid" />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-        <NumField label="TDS deducted (salary + professional)" value={tds} onChange={setTds} />
+        <NumField label="TDS deducted on salary (Sec 192 — Schedule TDS1)" value={tds} onChange={setTds} />
+        <NumField label="TDS on other income — interest, rent, professional (Schedule TDS2)" value={tdsNonSal} onChange={setTdsNonSal} note="Rule A-98: TDS2 entries" />
         <NumField label="Advance tax paid" value={advanceTax} onChange={setAdvanceTax} />
         <NumField label="Self-assessment tax paid" value={selfAssess} onChange={setSelfAssess} />
         <SelField label="Age group" value={ageGroup} onChange={setAgeGroup} options={[['<60','Below 60'],['60-80','60–80 (Senior)'],['> 80','>80 (Super senior)']]} />
