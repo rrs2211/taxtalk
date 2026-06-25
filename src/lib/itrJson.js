@@ -608,7 +608,14 @@ export function generateITRJson(itrForm, ret, d, c) {
     case 'ITR-1': return buildITR1(ret, d, comp);
     case 'ITR-2': return buildITR2(ret, d, comp);
     case 'ITR-4': return buildITR4(ret, d, comp);
-    default:      return buildITR1(ret, d, comp);
+    case 'ITR-3':
+      // ITR-3 (partners) requires separate CA preparation — cannot be auto-generated
+      throw new Error(
+        'ITR-3 is required for partners in a firm. This return must be prepared manually by your CA. ' +
+        'Please contact RB Shah & Associates directly for partner return filing.'
+      );
+    default:
+      throw new Error(`Unsupported ITR form: ${itrForm}. Please contact your CA.`);
   }
 }
 

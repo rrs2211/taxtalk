@@ -1,74 +1,125 @@
-// api/lib/helpers.js
-// Shared utilities for all Vercel API functions
+// api/lib/helpers.js — v31 hardened
+// Security: no key leakage, strict CORS, persistent rate limiting via Supabase
 
 import { createClient } from '@supabase/supabase-js';
 
-// ── Env vars: server-side names with VITE_ fallbacks ─────────────────────────
-// In Vercel, set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY as server-only vars.
-// If you only set the VITE_ versions, these fallbacks kick in automatically.
-
-export function getSupabaseUrl() {
-  return process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+// ── Env validation (fail-fast at cold start) ──────────────────────────────────
+function requireEnv(name) {
+  const val = process.env[name];
+  if (!val) throw new Error(`[TaxTalk] Missing required env var: ${name}. Check Vercel Environment Variables.`);
+  return val;
 }
 
-export function getServiceRoleKey() {
-  return process.env.SUPABASE_SERVICE_ROLE_KEY;
-}
+function getSupabaseUrl()      { return requireEnv('SUPABASE_URL'); }
+function getServiceRoleKey()   { return requireEnv('SUPABASE_SERVICE_ROLE_KEY'); }
+function getAnonKey()          { return requireEnv('SUPABASE_ANON_KEY'); }
+function getAllowedOrigin()     { return process.env.ALLOWED_ORIGIN || null; }
 
-export function getAnonKey() {
-  return process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-}
-
-// ── Supabase admin client (uses service role — server only) ──────────────────
-
+// ── Admin client (service role — bypasses RLS for server operations) ──────────
+let _adminClient = null;
 export function getSupabaseAdmin() {
-  const url = getSupabaseUrl();
-  const key = getServiceRoleKey() || getAnonKey(); // fallback to anon if no service role
-  if (!url || !key) throw new Error('Missing Supabase configuration. Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel environment variables.');
-  return createClient(url, key, { auth: { persistSession: false } });
+  if (_adminClient) return _adminClient;
+  _adminClient = createClient(getSupabaseUrl(), getServiceRoleKey(), {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return _adminClient;
 }
 
-// ── CORS headers ─────────────────────────────────────────────────────────────
-// Allows your Vercel domain, localhost for dev, and any custom domain.
+// ── Anon client (for verifying JWTs only) ────────────────────────────────────
+let _anonClient = null;
+function getAnonClient() {
+  if (_anonClient) return _anonClient;
+  _anonClient = createClient(getSupabaseUrl(), getAnonKey(), {
+    auth: { persistSession: false },
+  });
+  return _anonClient;
+}
 
+// ── CORS headers (strict — no wildcard in production) ─────────────────────────
 export function setCORSHeaders(req, res) {
-  const allowedOrigins = [
-    process.env.ALLOWED_ORIGIN,
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ].filter(Boolean);
-
   const origin = req.headers.origin;
-  if (origin && (allowedOrigins.includes(origin) || process.env.ALLOWED_ORIGIN === '*')) {
+  const allowed = getAllowedOrigin();
+
+  // In production: only allow the configured origin
+  // In dev (no ALLOWED_ORIGIN set): allow localhost only
+  const devOrigins = ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'];
+  const isAllowed = allowed
+    ? origin === allowed
+    : devOrigins.includes(origin);
+
+  if (origin && isAllowed) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (!origin) {
+    // Server-to-server or same-origin — allow
+    res.setHeader('Access-Control-Allow-Origin', 'null');
   } else {
-    // In dev or if no ALLOWED_ORIGIN set, allow all
-    res.setHeader('Access-Control-Allow-Origin', process.env.ALLOWED_ORIGIN || '*');
+    // Unknown origin — refuse CORS but let the request fail auth naturally
+    res.setHeader('Access-Control-Allow-Origin', 'null');
   }
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Max-Age', '86400');
+
+  // Security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  // Never expose which backend/AI we use
+  res.setHeader('X-Powered-By', '');
+  res.removeHeader('X-Powered-By');
+  res.removeHeader('Server');
 }
 
-// ── Verify Supabase JWT and return user ──────────────────────────────────────
-
+// ── JWT verification — returns user or null ───────────────────────────────────
 export async function getAuthUser(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) return null;
+  const token = authHeader.slice(7);
+  if (!token || token.length < 20) return null;
 
-  const token = authHeader.replace('Bearer ', '');
-  const supabase = getSupabaseAdmin();
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  // Use anon client to verify JWT — this never uses the service role key for auth
+  const anonClient = getAnonClient();
+  const { data: { user }, error } = await anonClient.auth.getUser(token);
   if (error || !user) return null;
   return user;
 }
 
-// ── Standard OPTIONS handler ─────────────────────────────────────────────────
+// ── Persistent rate limiting via Supabase RPC ─────────────────────────────────
+// Falls back to in-memory if DB call fails (so extraction still works in dev)
+const _memFallback = new Map();
+export async function checkRateLimit(userId, endpoint, maxPerHour = 20) {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.rpc('check_rate_limit', {
+      p_user_id:  userId,
+      p_endpoint: endpoint,
+      p_max:      maxPerHour,
+    });
+    if (error) throw error;
+    return data === true;
+  } catch (e) {
+    // Fallback: in-memory (dev / DB unavailable)
+    const key = `${userId}:${endpoint}`;
+    const now = Date.now();
+    const window = 3_600_000;
+    const entry = _memFallback.get(key);
+    if (!entry || now - entry.t > window) {
+      _memFallback.set(key, { n: 1, t: now });
+      return true;
+    }
+    if (entry.n >= maxPerHour) return false;
+    entry.n++;
+    return true;
+  }
+}
 
+// ── OPTIONS preflight ─────────────────────────────────────────────────────────
 export function handleOptions(req, res) {
   if (req.method === 'OPTIONS') {
     setCORSHeaders(req, res);
-    res.status(200).end();
+    res.status(204).end();
     return true;
   }
   return false;

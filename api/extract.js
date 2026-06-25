@@ -1,14 +1,6 @@
 import { getPresignedUrl } from './lib/r2.js';
-import { setCORSHeaders, handleOptions, getAuthUser, getSupabaseAdmin } from './lib/helpers.js';
+import { setCORSHeaders, handleOptions, getAuthUser, getSupabaseAdmin, checkRateLimit } from './lib/helpers.js';
 
-const RATE_LIMIT = new Map();
-function checkRate(ip) {
-  const now = Date.now(); const window = 3600000; const max = 20;
-  const e = RATE_LIMIT.get(ip);
-  if (!e || now - e.t > window) { RATE_LIMIT.set(ip, { n:1, t:now }); return true; }
-  if (e.n >= max) return false;
-  e.n++; return true;
-}
 
 const SYSTEM = `You are a specialized Indian income tax document extraction engine for AY 2026-27.
 Extract data from uploaded documents and return ONLY valid JSON — no preamble, no markdown fences.
@@ -189,8 +181,7 @@ export default async function handler(req, res) {
   const user = await getAuthUser(req);
   if (!user) return res.status(401).json({ message: 'Please sign in' });
 
-  const ip = req.headers['x-forwarded-for']?.split(',')[0] || 'unknown';
-  if (!checkRate(ip)) return res.status(429).json({ message: 'Too many requests. Try again later.' });
+  if (!(await checkRateLimit(user.id, 'extract', 30))) return res.status(429).json({ message: 'Too many extraction requests this hour. Please try again later.' });
 
   const { documentId } = req.body || {};
   if (!documentId) return res.status(400).json({ message: 'Missing documentId' });

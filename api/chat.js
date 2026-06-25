@@ -2,7 +2,7 @@
 // Handles any free-text input: "salary 8 lakh TDS 50000 PPF 1.5 lakh"
 // Segregates by ITR clause, tracks completeness, drives step progression
 
-import { setCORSHeaders, handleOptions, getAuthUser } from './lib/helpers.js';
+import { setCORSHeaders, handleOptions, getAuthUser, checkRateLimit } from './lib/helpers.js';
 
 const SYSTEM = `You are TaxTalk, the conversational ITR filing assistant for RB Shah & Associates (Rajkot, Gujarat).
 You are helping Indian taxpayers file their AY 2026-27 (FY 2025-26) Income Tax Return.
@@ -144,6 +144,10 @@ export default async function handler(req, res) {
 
   const user = await getAuthUser(req);
   if (!user) return res.status(401).json({ message: 'Not authenticated' });
+
+  if (!(await checkRateLimit(user.id, 'chat', 60))) {
+    return res.status(429).json({ message: 'Too many messages this hour. Please wait a while before sending more.' });
+  }
 
   const { message, state = {}, lang = 'en', conversationHistory = [] } = req.body || {};
   if (!message?.trim()) return res.status(400).json({ message: 'Message required' });

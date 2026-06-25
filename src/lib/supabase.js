@@ -296,12 +296,19 @@ export async function replyToCAQuery(queryId, replyText, fromUserId, toUserId, r
 // ─── KYC / Profile ────────────────────────────────────────────
 
 export async function getKYCStatus(userId) {
-  const { data } = await supabase.from('profiles').select('full_name,pan,dob,phone,aadhaar,city,state_code,pin_code,locality,email,kyc_complete').eq('id', userId).single();
+  // Uses profiles_safe view — never returns full aadhaar
+  const { data } = await supabase.from('profiles').select('full_name,pan,dob,phone,aadhaar_last4,city,state_code,pin_code,locality,email,kyc_complete').eq('id', userId).single();
   return data;
 }
 
 export async function saveKYC(userId, kyc) {
-  const { data, error } = await supabase.from('profiles').update({ ...kyc, kyc_complete: true }).eq('id', userId).select().single();
+  // Security: never store full Aadhaar — keep only last 4 digits
+  const safeKyc = { ...kyc, kyc_complete: true };
+  if (safeKyc.aadhaar && safeKyc.aadhaar.length > 4) {
+    safeKyc.aadhaar_last4 = safeKyc.aadhaar.replace(/\D/g,'').slice(-4);
+    delete safeKyc.aadhaar; // never persist full Aadhaar
+  }
+  const { data, error } = await supabase.from('profiles').update(safeKyc).eq('id', userId).select().single();
   if (error) throw error;
   return data;
 }
@@ -435,6 +442,18 @@ export async function getMyDocuments(returnId) {
 // ─── Client computation updates ─────────────────────────────
 
 export async function clientUpdateComputation(returnId, userId, computation, changeNote) {
+  // Guard: block updates on approved or filed returns
+  const { data: currentRet } = await supabase
+    .from('returns')
+    .select('status, user_id')
+    .eq('id', returnId)
+    .single();
+
+  if (!currentRet || currentRet.user_id !== userId) throw new Error('Return not found or access denied.');
+  if (['approved', 'filed'].includes(currentRet.status)) {
+    throw new Error(`Return is already ${currentRet.status}. Contact your CA to make changes.`);
+  }
+
   // Save updated computation
   const { determineITRForm } = await import('./itrJson.js');
   const itrForm = determineITRForm(computation.profile, computation);
@@ -549,3 +568,32 @@ export async function getProfileForFiling(userId) {
   if (error) throw error;
   return data;
 }
+
+// ─── Consent recording ─────────────────────────────────────────────────────
+
+export async function recordConsent(userId, { termsVersion = 'v1.0', privacyVersion = 'v1.0', cookieConsent = true } = {}) {
+  const { error } = await supabase
+    .from('consent_records')
+    .insert({
+      user_id:          userId,
+      terms_version:    termsVersion,
+      privacy_version:  privacyVersion,
+      cookie_consent:   cookieConsent,
+    });
+  if (error) console.error('recordConsent error:', error);
+  // Also mark on profile
+  await supabase.from('profiles').update({
+    terms_accepted:    true,
+    terms_accepted_at: new Date().toISOString(),
+  }).eq('id', userId);
+}
+
+export async function hasAcceptedTerms(userId) {
+  const { data } = await supabase
+    .from('profiles')
+    .select('terms_accepted')
+    .eq('id', userId)
+    .single();
+  return data?.terms_accepted === true;
+}
+

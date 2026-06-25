@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MessageCircle, ClipboardCheck, Inbox, User, LogOut, Shield, ChevronLeft } from 'lucide-react';
 import { useAuth } from './hooks/useAuth.js';
+import { hasAcceptedTerms } from './lib/supabase.js';
 import { LangProvider, translate as t } from './i18n.js';
 import LanguageSwitcher from './components/LanguageSwitcher.jsx';
 import AuthScreen from './components/AuthScreen.jsx';
@@ -8,6 +9,7 @@ import TaxChat from './components/TaxChat.jsx';
 import CADashboard from './components/CADashboard.jsx';
 import ClientReturnManager from './components/ClientReturnManager.jsx';
 import KYCScreen from './components/KYCScreen.jsx';
+import ConsentGate from './components/ConsentGate.jsx';
 import ProfileSettings from './components/ProfileSettings.jsx';
 import './index.css';
 
@@ -52,6 +54,7 @@ export default function App() {
   const [view, setView]           = useState('chat');
   const [showProfile, setShowProfile] = useState(false);
   const [deferredPrompt, setDeferred] = useState(null);
+  const [termsAccepted, setTermsAccepted] = useState(null); // null = loading
   const [showInstall, setShowInstall] = useState(false);
   // Language: persisted in localStorage
   const [lang, setLang] = useState(() => localStorage.getItem('taxtalk_lang') || 'en');
@@ -59,6 +62,15 @@ export default function App() {
     setLang(l);
     localStorage.setItem('taxtalk_lang', l);
   }
+
+  // Check if terms have been accepted when profile loads
+  useEffect(() => {
+    if (auth.user && auth.profile) {
+      setTermsAccepted(auth.profile.terms_accepted === true);
+    } else if (!auth.user) {
+      setTermsAccepted(null);
+    }
+  }, [auth.user, auth.profile]);
 
   // PWA install prompt
   useEffect(() => {
@@ -76,6 +88,16 @@ export default function App() {
 
   if (auth.loading) return <Spinner/>;
   if (!auth.user)   return <AuthScreen onAuth={{ signIn: auth.signIn, signUp: auth.signUp, forgotPassword: auth.forgotPassword }}/>;
+
+  // Show consent gate for new users who haven't accepted terms yet
+  if (!auth.isCA && termsAccepted === false) {
+    return (
+      <ConsentGate
+        userId={auth.user.id}
+        onConsented={() => { setTermsAccepted(true); auth.refreshProfile(); }}
+      />
+    );
+  }
 
   const needsKYC = !auth.isCA && !auth.profile?.kyc_complete;
   if (needsKYC) {

@@ -103,8 +103,12 @@ function calcSurcharge(taxableIncome, taxAfterRebate, regime) {
 function calcCGTax(cg) {
   if (!cg?.enabled) return 0;
   let tax = 0;
-  const stcg = cgGain(cg.shares?.stcg || cg.shares?.stcg111a);
-  if (stcg > 0) tax += Math.round(stcg * 0.20);           // 111A @ 20%
+  // Section 111A STCG: split-rate — 15% pre-23-Jul-2024, 20% post-23-Jul-2024
+  // cg.shares.stcg111a_pre and stcg111a_post captured separately in CGCollector
+  const stcgPre  = cgGain(cg.shares?.stcg111a_pre  || 0);  // pre Jul 23 2024 @ 15%
+  const stcgPost = cgGain(cg.shares?.stcg111a_post || cg.shares?.stcg || cg.shares?.stcg111a || 0); // post @ 20%
+  if (stcgPre  > 0) tax += Math.round(stcgPre  * 0.15);   // 111A @ 15% (pre-amendment)
+  if (stcgPost > 0) tax += Math.round(stcgPost * 0.20);   // 111A @ 20% (Finance Act 2024)
   const ltcg = cgGain(cg.shares?.ltcg || cg.shares?.ltcg112a);
   if (ltcg > 125000) tax += Math.round((ltcg - 125000) * 0.125); // 112A @ 12.5% above ₹1.25L
   const ltcgProp = cgGain(cg.property?.ltcgDetail || cg.property?.ltcg);

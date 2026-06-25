@@ -2,7 +2,7 @@
 // Parses natural language income messages from clients in any language
 // Returns structured income data + follow-up questions for missing info
 
-import { setCORSHeaders, handleOptions, getAuthUser } from './lib/helpers.js';
+import { setCORSHeaders, handleOptions, getAuthUser, checkRateLimit } from './lib/helpers.js';
 
 const SYSTEM = `You are TaxTalk, an Indian income tax assistant for AY 2026-27 (FY 2025-26).
 You understand messages in English, Hindi, and Gujarati about income tax.
@@ -66,6 +66,10 @@ export default async function handler(req, res) {
 
   const user = await getAuthUser(req);
   if (!user) return res.status(401).json({ message: 'Not authenticated' });
+
+  if (!(await checkRateLimit(user.id, 'chat-parse', 60))) {
+    return res.status(429).json({ message: 'Too many requests. Please slow down.' });
+  }
 
   const { message, context = {}, language = 'en' } = req.body || {};
   if (!message?.trim()) return res.status(400).json({ message: 'No message provided' });

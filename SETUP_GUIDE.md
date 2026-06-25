@@ -229,3 +229,37 @@ If something isn't working, tell us:
 3. What you expected to happen
 
 We'll fix it in the next session.
+
+---
+
+## v31 Security Setup Checklist
+
+### Supabase (critical — do in order)
+1. Run `supabase/migration_v31_security.sql` in SQL Editor
+2. Dashboard → Auth → Passwords → Minimum password length: **8**
+3. Dashboard → Auth → Passwords → Prevent use of leaked passwords: **Enabled**
+4. Dashboard → Auth → Email → Confirm email: **Enabled**
+5. Dashboard → Auth → Site URL: Set to your exact production domain
+6. Dashboard → Auth → Redirect URLs: Add your production URL only
+7. Dashboard → Auth → JWT Expiry: Set to **3600** (1 hour)
+
+### Vercel (critical)
+Set these as Environment Variables (Production only, not Preview):
+- `SUPABASE_SERVICE_ROLE_KEY` — server-only, never expose to client
+- `ANTHROPIC_API_KEY` — server-only, never expose to client
+- `ALLOWED_ORIGIN` — your exact production URL (e.g. `https://taxtalk.yourdomain.in`)
+- `R2_SECRET_ACCESS_KEY` — server-only
+
+### Cloudflare R2
+- Bucket: private (no public access)
+- CORS: allow only your production domain
+- Object lifecycle: delete after 2555 days (7 years)
+- Enable R2 audit logs
+
+### Post-deployment verification
+- [ ] Check that `https://your-domain/api/chat` returns 403 without Authorization header
+- [ ] Check that `https://your-domain/api/extract` returns 403 without auth
+- [ ] Verify no API keys appear in browser DevTools → Network tab
+- [ ] Verify `Access-Control-Allow-Origin` is NOT `*` on any API response
+- [ ] Test that updating PAN after identity lock throws a DB error
+- [ ] Test that a client cannot update an approved return
