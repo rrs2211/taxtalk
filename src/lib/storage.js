@@ -57,8 +57,16 @@ export async function uploadDocument(file, returnId, docType, onProgress) {
   });
 
   if (!urlRes.ok) {
-    const err = await urlRes.json().catch(() => ({}));
-    throw new Error(err.message || 'Failed to prepare upload');
+    let errMsg = 'Failed to prepare upload';
+    try {
+      const errBody = await urlRes.json();
+      errMsg = errBody.message || errMsg;
+    } catch { /* ignore parse error */ }
+    // Provide actionable messages for common server errors
+    if (urlRes.status === 401) errMsg = 'Session expired — please sign in again.';
+    if (urlRes.status === 403) errMsg = 'Return not found — please refresh and try again.';
+    if (urlRes.status === 400 && errMsg.includes('contentType')) errMsg = 'File type not supported. Please upload a PDF, JPG, or PNG.';
+    throw new Error(errMsg);
   }
 
   const { uploadUrl, key } = await urlRes.json();

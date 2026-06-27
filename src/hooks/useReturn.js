@@ -79,13 +79,25 @@ export function useReturn(userId) {
 
   // Handle document upload → R2 (two-step presigned) + trigger extraction
   const handleUpload = useCallback(async (file, docType, onProgress) => {
-    if (!returnRecord?.id || !userId) throw new Error('No active return');
+    if (!userId) throw new Error('Please sign in before uploading.');
+
+    // If returnRecord is still loading (null), wait up to 5 s for it to resolve.
+    // This covers the race where the user taps Upload before getOrCreateReturn finishes.
+    let activeReturn = returnRecord;
+    if (!activeReturn?.id) {
+      activeReturn = await Promise.race([
+        getOrCreateReturn(userId),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Timed out waiting for return to load. Please refresh and try again.')), 5000)),
+      ]);
+      if (activeReturn) setReturnRecord(activeReturn);
+    }
+    if (!activeReturn?.id) throw new Error('Could not create return. Please refresh and try again.');
 
     const validationError = validateFile(file);
     if (validationError) throw new Error(validationError);
 
     // Upload to R2 via presigned URL, register in Supabase
-    const doc = await uploadDocument(file, returnRecord.id, docType, onProgress);
+    const doc = await uploadDocument(file, activeReturn.id, docType, onProgress);
     return doc;
   }, [returnRecord, userId]);
 
