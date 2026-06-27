@@ -40,12 +40,12 @@ export function setCORSHeaders(req, res) {
   const origin = req.headers.origin;
   const allowed = getAllowedOrigin();
 
-  // In production: only allow the configured origin
-  // In dev (no ALLOWED_ORIGIN set): allow localhost only
+  // In production: allow the configured origin, all *.vercel.app subdomains, and localhost
   const devOrigins = ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'];
-  const isAllowed = allowed
-    ? origin === allowed
-    : devOrigins.includes(origin);
+  const isVercelPreview = origin && /^https:\/\/[a-z0-9-]+(\.vercel\.app)$/.test(origin);
+  const isAllowed = (allowed && origin === allowed)
+    || isVercelPreview
+    || devOrigins.includes(origin);
 
   if (origin && isAllowed) {
     res.setHeader('Access-Control-Allow-Origin', origin);

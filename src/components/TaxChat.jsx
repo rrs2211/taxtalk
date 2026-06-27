@@ -8,7 +8,7 @@ import { checkReturnCompleteness, hintsFor } from '../lib/completenessCheck.js';
 import CGTransactionImporter from './CGTransactionImporter.jsx';
 import { Button, Card, Badge } from './UI.jsx';
 import { useReturn } from '../hooks/useReturn.js';
-import { supabase, lockIdentity } from '../lib/supabase.js';
+import { supabase, lockIdentity, getOrCreateReturn } from '../lib/supabase.js';
 import { uploadDocument, validateFile } from '../lib/storage.js';
 
 // ── Steps ─────────────────────────────────────────────────────────────────────
@@ -419,7 +419,7 @@ const DOC_TYPES = [
 function UnifiedInput({
   showInput, isTextInput, inputCtx, inputValue, setInputVal, handleAmount,
   freeText, setFreeText, handleFreeChat, chatLoading, lang,
-  returnId, uploading, uploadPct, setUploading, setUploadPct,
+  returnId, getReturnId, uploading, uploadPct, setUploading, setUploadPct,
   addAI, setTds, setAdvTax, formatINR, done,
   supabase, uploadDocument, setProcessing,
 }) {
@@ -459,10 +459,11 @@ function UnifiedInput({
   }
 
   async function handleDocUpload(file, docType) {
-    if (!returnId) { addAI(<p style={{ color:'var(--danger)' }}>Start the filing process first, then upload your document.</p>, null); return; }
     setUploading(true); setShowDocs(false);
     try {
-      const doc = await uploadDocument(file, returnId, docType, p => setUploadPct(p));
+      const rid = (getReturnId ? await getReturnId() : returnId);
+      if (!rid) { addAI(<p style={{ color:'var(--danger)' }}>Start the filing process first, then upload your document.</p>, null); setUploading(false); return; }
+      const doc = await uploadDocument(file, rid, docType, p => setUploadPct(p));
       addAI(<p>✅ Document received — <strong>{file.name}</strong>. Reading it now...</p>, null);
       if (docType === 'ais' || docType === 'form16' || docType === 'balance_sheet' || docType === 'pl_statement') {
         setProcessing('Reading document...');
@@ -640,6 +641,16 @@ function UnifiedInput({
 // ── Main TaxChat ──────────────────────────────────────────────────────────────
 export default function TaxChat({ userId, lang: langProp, profile: initialProfile, onProfileUpdate }) {
   const { returnRecord, loadingReturn, saveComputation, persistMessage, submitToCA } = useReturn(userId);
+
+  // Safe returnId getter — waits up to 5s for returnRecord to load if null at upload time
+  const getReturnId = React.useCallback(async () => {
+    if (returnRecord?.id) return returnRecord.id;
+    const rec = await Promise.race([
+      getOrCreateReturn(userId),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('Return not ready. Please refresh and try again.')), 5000)),
+    ]);
+    return rec.id;
+  }, [returnRecord, userId]);
   const { lang, t: tr }   = useTranslation();
 
   // Convenience: translate with current lang
@@ -766,7 +777,8 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
     setUploading(true); setUploadPct(0);
     addUser('Uploading previous year ITR / computation...');
     try {
-      const doc = await uploadDocument(file, returnRecord.id, 'supporting_doc', p => setUploadPct(p));
+      const rid = await getReturnId();
+      const doc = await uploadDocument(file, rid, 'supporting_doc', p => setUploadPct(p));
       setUploading(false);
       setProcessing('Reading previous year ITR...');
       const { data: { session } } = await supabase.auth.getSession();
@@ -928,7 +940,8 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
     setUploading(true); setUploadPct(0); setUploadErr(null);
     addUser(`Uploaded: ${file.name}`);
     try {
-      const doc = await uploadDocument(file, returnRecord.id, 'ais', p => setUploadPct(p));
+      const rid = await getReturnId();
+      const doc = await uploadDocument(file, rid, 'ais', p => setUploadPct(p));
       setUploading(false);
       setProcessing('Reading your AIS — extracting identity and income details...');
       const { data: { session } } = await supabase.auth.getSession();
@@ -1131,7 +1144,8 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
     setUploading(true); setUploadPct(0);
     addUser(`Uploaded: ${file.name}`);
     try {
-      const doc = await uploadDocument(file, returnRecord.id, 'form16', p => setUploadPct(p));
+      const rid = await getReturnId();
+      const doc = await uploadDocument(file, rid, 'form16', p => setUploadPct(p));
       setUploading(false);
       setProcessing('Reading Form 16...');
       const { data: { session } } = await supabase.auth.getSession();
@@ -1329,7 +1343,8 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
     setUploading(true); setUploadPct(0);
     addUser(`Uploaded P&L: ${file.name}`);
     try {
-      const doc = await uploadDocument(file, returnRecord.id, 'pl_statement', p => setUploadPct(p));
+      const rid = await getReturnId();
+      const doc = await uploadDocument(file, rid, 'pl_statement', p => setUploadPct(p));
       setUploading(false);
       setProcessing('Reading P&L — identifying possible disallowances...');
       const { data: { session } } = await supabase.auth.getSession();
@@ -1373,7 +1388,8 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
     setUploading(true); setUploadPct(0);
     addUser(`Uploaded Balance Sheet: ${file.name}`);
     try {
-      const doc = await uploadDocument(file, returnRecord.id, 'balance_sheet', p => setUploadPct(p));
+      const rid = await getReturnId();
+      const doc = await uploadDocument(file, rid, 'balance_sheet', p => setUploadPct(p));
       setUploading(false);
       setProcessing('Reading Balance Sheet...');
       const { data: { session } } = await supabase.auth.getSession();
@@ -2289,6 +2305,7 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
             chatLoading={chatLoading}
             lang={lang}
             returnId={returnRecord?.id}
+            getReturnId={getReturnId}
             uploading={uploading}
             uploadPct={uploadPct}
             setUploading={setUploading}

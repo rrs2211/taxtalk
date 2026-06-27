@@ -9,9 +9,12 @@ If a field is not present or unclear, use null. Never invent or interpolate valu
 
 const PROMPTS = {
 
-  // ── AIS / Form 26AS — extracted first, drives the entire flow ────────────────
+  // ── AIS (Annual Information Statement from e-filing portal) ──────────────────
   ais: `Extract ALL data from this AIS (Annual Information Statement) or Form 26AS for AY 2026-27.
-This is the primary identity and income source document. Extract everything you can see.
+This document may be either:
+- An AIS from the e-filing portal (incometax.gov.in → AIS tab)
+- A Form 26AS / Annual Tax Statement from TRACES (centralized TDS system)
+Both are valid. Extract everything visible.
 Return this exact JSON structure (all arrays may be empty, never null):
 {
   "pan": string|null,
@@ -68,7 +71,17 @@ Return this exact JSON structure (all arrays may be empty, never null):
   "total_tds": number|null,
   "total_advance_tax": number|null,
   "confidence": number
-}`,
+}
+
+IMPORTANT MAPPING for Form 26AS (TRACES format):
+- PART-I "Details of Tax Deducted at Source" → map Section 192 entries to salary_income, Section 194A to interest_income, Section 194H to business_receipts etc.
+- For each PART-I entry: "Total Amount Paid/Credited" → amount field, "Total Tax Deducted" → tds field
+- "Name of Deductor" → deductor_name, "TAN of Deductor" → deductor_tan
+- PART-VI "Details of Tax Collected at Source" → high_value_transactions
+- PART-VII "Details of Paid Refund" → ignore (not needed)
+- Section 192 = Salary, Section 194A = Interest (FD/savings), Section 194H = Commission/brokerage
+- If TDS is 0.00, still include the income entry with tds: 0
+- Extract name, PAN, address from the header of the document`,
 
   // ── Form 16 — detailed salary certificate ────────────────────────────────────
   form16: `Extract all data from this Form 16 (Part A and Part B) issued by employer.

@@ -36,7 +36,7 @@ const STATES = [
   ['36','Telangana'],['38','Ladakh'],
 ];
 
-export default function KYCScreen({ userId, existingProfile, onComplete }) {
+export default function KYCScreen({ userId, existingProfile, onComplete, onBack }) {
   const p = existingProfile || {};
   const isEditing = !!p.kyc_complete;
   const identityLocked = !!p.identity_locked; // PAN/name/DOB cannot be changed
@@ -237,6 +237,12 @@ export default function KYCScreen({ userId, existingProfile, onComplete }) {
         )}
 
         <div style={{ display: 'flex', gap: 10 }}>
+          {/* Back button — shown when not in edit mode (i.e. first-time KYC) and onBack is provided */}
+          {!isEditing && onBack && (
+            <Button variant="secondary" style={{ flex: '0 0 auto', paddingLeft: 16, paddingRight: 16 }} onClick={onBack}>
+              ← Back
+            </Button>
+          )}
           {isEditing && (
             <Button variant="secondary" style={{ flex: 1, justifyContent: 'center' }} onClick={onComplete}>
               Cancel

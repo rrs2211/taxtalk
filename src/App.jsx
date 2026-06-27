@@ -101,7 +101,12 @@ export default function App() {
 
   const needsKYC = !auth.isCA && !auth.profile?.kyc_complete;
   if (needsKYC) {
-    return <KYCScreen userId={auth.user.id} existingProfile={auth.profile} onComplete={() => auth.refreshProfile()}/>;
+    return <KYCScreen
+      userId={auth.user.id}
+      existingProfile={auth.profile}
+      onComplete={() => auth.refreshProfile()}
+      onBack={() => setTermsAccepted(false)}
+    />;
   }
   if (showProfile) {
     return (
