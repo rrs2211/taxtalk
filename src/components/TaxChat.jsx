@@ -8,7 +8,7 @@ import { checkReturnCompleteness, hintsFor } from '../lib/completenessCheck.js';
 import CGTransactionImporter from './CGTransactionImporter.jsx';
 import { Button, Card, Badge } from './UI.jsx';
 import { useReturn } from '../hooks/useReturn.js';
-import { supabase, lockIdentity, getOrCreateReturn } from '../lib/supabase.js';
+import { supabase, lockIdentity, getOrCreateReturn, loadConversation } from '../lib/supabase.js';
 import { uploadDocument, validateFile } from '../lib/storage.js';
 
 // ── Steps ─────────────────────────────────────────────────────────────────────
@@ -641,6 +641,8 @@ function UnifiedInput({
 // ── Main TaxChat ──────────────────────────────────────────────────────────────
 export default function TaxChat({ userId, lang: langProp, profile: initialProfile, onProfileUpdate }) {
   const { returnRecord, loadingReturn, saveComputation, persistMessage, submitToCA } = useReturn(userId);
+  const [chatRestoreState, setChatRestoreState] = useState('loading'); // 'loading'|'ask'|'fresh'|'restored'
+  const [savedMessages, setSavedMessages] = useState([]); // raw DB rows for restore
 
   // Safe returnId getter — waits up to 5s for returnRecord to load if null at upload time
   const getReturnId = React.useCallback(async () => {
@@ -724,15 +726,52 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
   const [freeText,    setFreeText]    = useState('');
   const [chatLoading, setChatLoading] = useState(false);
 
+  // ── On returnRecord load: check for existing conversation ──────────────────
   useEffect(() => {
-    if (loadingReturn) return;
+    if (loadingReturn || !returnRecord?.id) return;
+    (async () => {
+      try {
+        const rows = await loadConversation(returnRecord.id);
+        if (rows && rows.length > 3) {
+          setSavedMessages(rows);
+          setChatRestoreState('ask');
+        } else {
+          setChatRestoreState('fresh');
+        }
+      } catch {
+        setChatRestoreState('fresh');
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingReturn, returnRecord?.id]);
+
+  // ── Restore previous conversation messages ──────────────────────────────────
+  function doRestoreChat() {
+    const restored = savedMessages.map((row, i) => ({
+      from: row.role === 'user' ? 'user' : 'ai',
+      content: row.content || '',
+      key: row.id || i,
+    }));
+    setMessages(restored);
+    setChatRestoreState('restored');
+    // Restore step from DB if available
+    if (returnRecord?.extracted_data?.__step) {
+      setStep(returnRecord.extracted_data.__step);
+    } else {
+      setStep(S.WELCOME);
+    }
+  }
+
+  // ── When restoreState becomes 'fresh': show normal welcome ──────────────────
+  useEffect(() => {
+    if (chatRestoreState !== 'fresh') return;
     const t = setTimeout(() => {
       const wLang = localStorage.getItem('taxtalk_lang') || 'en';
       const W = (k) => translate(k, wLang);
-      const prof = initialProfile || profile;
+      const prof = profile || initialProfile;
 
       // If PAN/name/DOB not yet in profile — collect FIRST before anything else
-      if (!prof?.pan || !prof?.full_name || !prof?.dob) {
+      if (!prof?.kyc_complete && (!prof?.pan || !prof?.full_name || !prof?.dob)) {
         setStep(S.PAN_COLLECT);
         addAI(
           <>
@@ -768,7 +807,8 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
       );
     }, 500);
     return () => clearTimeout(t);
-  }, [loadingReturn]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatRestoreState, profile?.pan, profile?.kyc_complete]);
 
   // ── Previous year ITR upload ────────────────────────────────────────────────
   async function handlePrevItrUpload(file) {
@@ -2033,11 +2073,55 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
     setTimeout(() => addAI(<p>Ready to file another return?</p>, null), 400);
   }
 
-  if (loadingReturn) return (
+  if (loadingReturn || chatRestoreState === 'loading') return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', gap:8, color:'var(--text-muted)', fontSize:14 }}>
       <Loader size={16} style={{ animation:'spin 1s linear infinite' }}/> Loading...
     </div>
   );
+
+  // ── Continue / Fresh dialog ─────────────────────────────────────────────────
+  if (chatRestoreState === 'ask') {
+    const lastMsg = savedMessages[savedMessages.length - 1];
+    const lastDate = lastMsg?.created_at
+      ? new Date(lastMsg.created_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+      : '';
+    return (
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', padding:'24px 20px', gap:20, background:'var(--surface-2)' }}>
+        <div style={{ background:'var(--surface)', borderRadius:'var(--radius-lg)', padding:'28px 24px', maxWidth:400, width:'100%', boxShadow:'var(--shadow-md)', textAlign:'center' }}>
+          <div style={{ fontSize:36, marginBottom:12 }}>💬</div>
+          <div style={{ fontWeight:700, fontSize:18, marginBottom:8 }}>Welcome back!</div>
+          <div style={{ fontSize:14, color:'var(--text-secondary)', marginBottom:6 }}>
+            You have an ITR filing in progress.
+          </div>
+          {lastDate && (
+            <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:20 }}>
+              Last activity: {lastDate}
+            </div>
+          )}
+          <div style={{ background:'var(--surface-2)', borderRadius:'var(--radius-md)', padding:'12px 14px', marginBottom:20, fontSize:13, color:'var(--text-secondary)', textAlign:'left', maxHeight:100, overflow:'hidden', borderLeft:'3px solid var(--brand)' }}>
+            {lastMsg?.content?.slice(0, 160) || 'Previous conversation found'}{(lastMsg?.content?.length || 0) > 160 ? '…' : ''}
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            <button
+              onClick={doRestoreChat}
+              style={{ padding:'12px 16px', background:'var(--brand)', color:'#fff', border:'none', borderRadius:'var(--radius-md)', fontWeight:600, fontSize:14, cursor:'pointer' }}
+            >
+              ▶ Continue where I left off
+            </button>
+            <button
+              onClick={() => { setMessages([]); setSavedMessages([]); setChatRestoreState('fresh'); }}
+              style={{ padding:'12px 16px', background:'var(--surface)', color:'var(--text-secondary)', border:'1px solid var(--border)', borderRadius:'var(--radius-md)', fontWeight:500, fontSize:14, cursor:'pointer' }}
+            >
+              🆕 Start a fresh return
+            </button>
+          </div>
+          <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:14 }}>
+            Your previous data is safely stored. Starting fresh will create a new return session.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const itrBadge = taxProfile === 'salaried' ? 'ITR-1' : taxProfile === 'business' || taxProfile === 'freelancer' ? 'ITR-4' : taxProfile === 'partner' ? 'ITR-3' : 'ITR';
 

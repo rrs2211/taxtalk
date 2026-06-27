@@ -4,10 +4,28 @@ import { setCORSHeaders, handleOptions, getAuthUser, getSupabaseAdmin } from './
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
+// Check R2 is configured before doing anything else
+function checkR2Config() {
+  const missing = [];
+  if (!process.env.CLOUDFLARE_ACCOUNT_ID) missing.push('CLOUDFLARE_ACCOUNT_ID');
+  if (!process.env.R2_ACCESS_KEY_ID)      missing.push('R2_ACCESS_KEY_ID');
+  if (!process.env.R2_SECRET_ACCESS_KEY)  missing.push('R2_SECRET_ACCESS_KEY');
+  return missing;
+}
+
 export default async function handler(req, res) {
   setCORSHeaders(req, res);
   if (handleOptions(req, res)) return;
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed' });
+
+  // Fail fast with actionable error if R2 is not configured
+  const missingR2 = checkR2Config();
+  if (missingR2.length > 0) {
+    console.error('R2 not configured. Missing env vars:', missingR2.join(', '));
+    return res.status(500).json({
+      message: `Document storage is not configured. Ask your administrator to set these Vercel environment variables: ${missingR2.join(', ')}`,
+    });
+  }
 
   const user = await getAuthUser(req);
   if (!user) return res.status(401).json({ message: 'Please sign in to upload documents' });
