@@ -660,21 +660,6 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
     ]);
     return rec.id;
   }, [returnRecord, userId]);
-
-  // ── Dynamic identity resolver ────────────────────────────────────────────
-  // Priority: profile (already saved/locked) > whatever was extracted earliest
-  // from Form 16 / AIS / 26AS / previous ITR > manual entry as last resort.
-  // Called whenever ANY document extraction returns identity fields.
-  const handleIdentityExtracted = React.useCallback(({ pan, name, dob }) => {
-    // If the account profile already has a locked PAN, profile always wins —
-    // we only use this to detect mismatches, never to silently overwrite it.
-    if (profile?.kyc_complete && profile?.pan) return;
-
-    // Otherwise, fill in whichever fields are still empty, first-document-wins.
-    if (pan && !manualPAN)   setManualPAN(pan.toUpperCase());
-    if (name && !manualName) setManualName(name);
-    if (dob && !manualDOB)   setManualDOB(dob);
-  }, [profile, manualPAN, manualName, manualDOB]);
   const { lang, t: tr }   = useTranslation();
 
   // Convenience: translate with current lang
@@ -741,6 +726,24 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
   const [manualPAN,   setManualPAN]     = useState('');
   const [manualDOB,   setManualDOB]     = useState('');
   const [manualPhone, setManualPhone]   = useState('');
+
+  // ── Dynamic identity resolver ────────────────────────────────────────────
+  // Priority: profile (already saved/locked) > whatever was extracted earliest
+  // from Form 16 / AIS / 26AS / previous ITR > manual entry as last resort.
+  // Called whenever ANY document extraction returns identity fields.
+  // NOTE: must be declared after profile/manualPAN/manualName/manualDOB above
+  // — it closes over them, and placing it earlier causes a TDZ ReferenceError
+  // in the production build ("Cannot access '...' before initialization").
+  const handleIdentityExtracted = React.useCallback(({ pan, name, dob }) => {
+    // If the account profile already has a locked PAN, profile always wins —
+    // we only use this to detect mismatches, never to silently overwrite it.
+    if (profile?.kyc_complete && profile?.pan) return;
+
+    // Otherwise, fill in whichever fields are still empty, first-document-wins.
+    if (pan && !manualPAN)   setManualPAN(pan.toUpperCase());
+    if (name && !manualName) setManualName(name);
+    if (dob && !manualDOB)   setManualDOB(dob);
+  }, [profile, manualPAN, manualName, manualDOB]);
 
   const bottomRef     = useRef(null);
 
