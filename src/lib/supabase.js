@@ -547,16 +547,48 @@ export async function getMyReturnsWithDocs(userId) {
 // ─── Lock identity — PAN, name, DOB once set cannot be changed ───────────────
 
 export async function lockIdentity(userId, { full_name, pan, dob }) {
-  // Sets identity fields and marks kyc_complete=true so the chat doesn't re-ask
+  // Sets identity fields and marks kyc_complete=true so the chat doesn't re-ask.
+  // Uses .maybeSingle() instead of .single() so a 0-row result (already locked,
+  // or some other guard mismatch) doesn't throw — we detect and handle it below.
   const { data, error } = await supabase
     .from('profiles')
     .update({ full_name, pan: pan.toUpperCase(), dob, identity_locked: true, kyc_complete: true })
     .eq('id', userId)
-    .eq('identity_locked', false)  // RLS: only update if not already locked
+    .eq('identity_locked', false)  // only update if not already locked
     .select()
-    .single();
+    .maybeSingle();
   if (error) throw error;
-  return data;
+
+  if (data) return data; // update succeeded normally
+
+  // No row was updated — most likely identity is already locked from an
+  // earlier session. Fetch the current profile: if it's already locked,
+  // that's fine (idempotent success); if not, something else is wrong (RLS).
+  const { data: existing, error: fetchErr } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .single();
+  if (fetchErr) throw fetchErr;
+
+  if (existing.identity_locked) {
+    // Already locked — ensure kyc_complete is also true so the chat doesn't
+    // loop back here again, then return the existing locked profile as-is.
+    if (!existing.kyc_complete) {
+      const { data: fixed } = await supabase
+        .from('profiles')
+        .update({ kyc_complete: true })
+        .eq('id', userId)
+        .select()
+        .single();
+      return fixed || existing;
+    }
+    return existing;
+  }
+
+  // Row exists, not locked, but update still matched 0 rows — likely an RLS
+  // policy mismatch rather than a locking conflict. Surface a clear error.
+  throw new Error('Could not save your details due to a permissions issue. Please contact support — this is not something you can fix by retrying.');
 }
 
 export async function getProfileForFiling(userId) {
