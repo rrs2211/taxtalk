@@ -418,10 +418,12 @@ const DOC_TYPES = [
 
 function UnifiedInput({
   showInput, isTextInput, inputCtx, inputValue, setInputVal, handleAmount,
+  setInputCtx,
   freeText, setFreeText, handleFreeChat, chatLoading, lang,
   returnId, getReturnId, uploading, uploadPct, setUploading, setUploadPct,
   addAI, setTds, setAdvTax, formatINR, done,
   supabase, uploadDocument, setProcessing,
+  knownPAN,
 }) {
   const [showDocs, setShowDocs] = React.useState(false);
   const [showHints, setShowHints] = React.useState(true);
@@ -477,7 +479,7 @@ function UnifiedInput({
         setProcessing(null);
         if (extracted) {
           // ── PAN mismatch check ─────────────────────────────────────────────
-          const profilePAN  = (profile?.pan || manualPAN || '').toUpperCase();
+          const profilePAN  = (knownPAN || '').toUpperCase();
           const extractedPAN = (extracted.pan || '').toUpperCase();
           if (extractedPAN && profilePAN && extractedPAN !== profilePAN) {
             addAI(
@@ -2380,6 +2382,7 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
             showInput={showInput}
             isTextInput={isTextInput}
             inputCtx={inputCtx}
+            setInputCtx={setInputCtx}
             inputValue={inputValue}
             setInputVal={setInputVal}
             handleAmount={handleAmount}
@@ -2402,6 +2405,7 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
             supabase={supabase}
             uploadDocument={uploadDocument}
             setProcessing={setProcessing}
+            knownPAN={profile?.pan || manualPAN || ''}
           />
         </div>
       )}
