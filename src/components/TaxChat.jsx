@@ -423,7 +423,7 @@ function UnifiedInput({
   returnId, getReturnId, uploading, uploadPct, setUploading, setUploadPct,
   addAI, setTds, setAdvTax, formatINR, done,
   supabase, uploadDocument, setProcessing,
-  knownPAN,
+  knownPAN, onIdentityExtracted,
 }) {
   const [showDocs, setShowDocs] = React.useState(false);
   const [showHints, setShowHints] = React.useState(true);
@@ -498,6 +498,11 @@ function UnifiedInput({
             return; // Don't apply data until confirmed
           }
           // ── Apply extracted data ───────────────────────────────────────────
+          // Capture identity (name/PAN/DOB) from whichever document has it first —
+          // works for Form 16, AIS, 26AS, or previous ITR uploads alike.
+          if (onIdentityExtracted && (extracted.pan || extracted.name || extracted.dob)) {
+            onIdentityExtracted({ pan: extracted.pan, name: extracted.name, dob: extracted.dob });
+          }
           const updates = [];
           if (extracted.total_tds > 0)         { setTds(extracted.total_tds); updates.push(`TDS: ${formatINR(extracted.total_tds)}`); }
           if (extracted.total_advance_tax > 0) { setAdvTax(extracted.total_advance_tax); updates.push(`Advance tax: ${formatINR(extracted.total_advance_tax)}`); }
@@ -655,6 +660,21 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
     ]);
     return rec.id;
   }, [returnRecord, userId]);
+
+  // ── Dynamic identity resolver ────────────────────────────────────────────
+  // Priority: profile (already saved/locked) > whatever was extracted earliest
+  // from Form 16 / AIS / 26AS / previous ITR > manual entry as last resort.
+  // Called whenever ANY document extraction returns identity fields.
+  const handleIdentityExtracted = React.useCallback(({ pan, name, dob }) => {
+    // If the account profile already has a locked PAN, profile always wins —
+    // we only use this to detect mismatches, never to silently overwrite it.
+    if (profile?.kyc_complete && profile?.pan) return;
+
+    // Otherwise, fill in whichever fields are still empty, first-document-wins.
+    if (pan && !manualPAN)   setManualPAN(pan.toUpperCase());
+    if (name && !manualName) setManualName(name);
+    if (dob && !manualDOB)   setManualDOB(dob);
+  }, [profile, manualPAN, manualName, manualDOB]);
   const { lang, t: tr }   = useTranslation();
 
   // Convenience: translate with current lang
@@ -772,28 +792,66 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
       const W = (k) => translate(k, wLang);
       const prof = profile || initialProfile;
 
-      // If PAN/name/DOB not yet in profile — collect FIRST before anything else
-      if (!prof?.kyc_complete && (!prof?.pan || !prof?.full_name || !prof?.dob)) {
+      // Identity can come from any of these sources, first-available wins:
+      //   1. Locked profile (kyc_complete=true)              — strongest, never re-asked
+      //   2. Already extracted from a document this session    — Form 16 / AIS / 26AS / previous ITR
+      // Only fall through to manual collection if NONE of these have it.
+      const resolvedPAN  = prof?.pan        || manualPAN  || '';
+      const resolvedName = prof?.full_name  || manualName || '';
+      const resolvedDOB  = prof?.dob        || manualDOB  || '';
+
+      // If PAN/name/DOB not yet known from ANY source — collect manually
+      if (!prof?.kyc_complete && (!resolvedPAN || !resolvedName || !resolvedDOB)) {
+        // Carry forward whatever a document already gave us
+        if (resolvedPAN  && !manualPAN)  setManualPAN(resolvedPAN);
+        if (resolvedName && !manualName) setManualName(resolvedName);
+        if (resolvedDOB  && !manualDOB)  setManualDOB(resolvedDOB);
+
         setStep(S.PAN_COLLECT);
         addAI(
           <>
             <p style={{ marginBottom:8 }}>{W('chat.welcome_1')}</p>
             <p style={{ marginBottom:8 }}>
-              {wLang==='hi' ? 'शुरू करने से पहले, मुझे आपका PAN Card विवरण चाहिए।' :
-               wLang==='gu' ? 'શરૂ કરતા પહેલાં, મને તમારી PAN Card ની વિગત જોઈએ.' :
-               'Before we begin, I need your PAN Card details. This identifies you and cannot be changed later.'}
+              {resolvedName || resolvedPAN
+                ? (wLang==='hi' ? `मुझे आपके दस्तावेज़ों से कुछ विवरण मिले हैं — बस कुछ और जानकारी चाहिए।`
+                   : wLang==='gu' ? `તમારા દસ્તાવેજોમાંથી મને કેટલીક વિગતો મળી — થોડી વધુ માહિતી જોઈએ.`
+                   : `I found some details from your documents — just need a bit more.`)
+                : (wLang==='hi' ? 'शुरू करने से पहले, मुझे आपका PAN Card विवरण चाहिए।' :
+                   wLang==='gu' ? 'શરૂ કરતા પહેલાં, મને તમારી PAN Card ની વિગત જોઈએ.' :
+                   'Before we begin, I need your PAN Card details. This identifies you and cannot be changed later.')}
             </p>
           </>, null
         );
         setTimeout(() => {
-          ask(
-            wLang==='hi'
-              ? <p>आपका <strong>पूरा नाम</strong> (PAN Card के अनुसार)?</p>
-              : wLang==='gu'
-              ? <p>તમારું <strong>પૂરું નામ</strong> (PAN Card પ્રમાણે)?</p>
-              : <p>What is your <strong>full name</strong> as on your PAN card?</p>,
-            'pan_collect_name', true
-          );
+          // Skip straight to whichever field is genuinely still missing
+          if (!resolvedName) {
+            ask(
+              wLang==='hi'
+                ? <p>आपका <strong>पूरा नाम</strong> (PAN Card के अनुसार)?</p>
+                : wLang==='gu'
+                ? <p>તમારું <strong>પૂરું નામ</strong> (PAN Card પ્રમાણે)?</p>
+                : <p>What is your <strong>full name</strong> as on your PAN card?</p>,
+              'pan_collect_name', true
+            );
+          } else if (!resolvedPAN) {
+            ask(
+              wLang==='hi'
+                ? <p>आपका <strong>PAN number</strong> क्या है? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(10 अंक, जैसे ABCDE1234F)</span></p>
+                : wLang==='gu'
+                ? <p>તમારો <strong>PAN number</strong> શું છે? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(10 અક્ષર, જેવા ABCDE1234F)</span></p>
+                : <p>What is your <strong>PAN number</strong>? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(10 characters, e.g. ABCDE1234F)</span></p>,
+              'pan_collect_pan', true
+            );
+          } else {
+            ask(
+              wLang==='hi'
+                ? <p>आपकी <strong>जन्म तिथि</strong> क्या है? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(DD/MM/YYYY)</span></p>
+                : wLang==='gu'
+                ? <p>તમારી <strong>જન્મ તારીખ</strong> શું છે? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(DD/MM/YYYY)</span></p>
+                : <p>What is your <strong>date of birth</strong>? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(DD/MM/YYYY)</span></p>,
+              'pan_collect_dob', true
+            );
+          }
         }, 800);
         return;
       }
@@ -1574,6 +1632,21 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
       setManualName(String(val));
       setPanError('');
       const langNow = localStorage.getItem('taxtalk_lang') || 'en';
+      // If PAN is already known from a document (Form 16/AIS/26AS/prev ITR), skip straight to DOB
+      if (manualPAN) {
+        addAI(<p>PAN already on file — <strong>{manualPAN}</strong></p>, null);
+        setTimeout(() => {
+          ask(
+            langNow==='hi'
+              ? <p>आपकी <strong>जन्म तिथि</strong> क्या है? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(DD/MM/YYYY)</span></p>
+              : langNow==='gu'
+              ? <p>તમારી <strong>જન્મ તારીખ</strong> શું છે? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(DD/MM/YYYY)</span></p>
+              : <p>What is your <strong>date of birth</strong>? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(DD/MM/YYYY)</span></p>,
+            'pan_collect_dob', true
+          );
+        }, 600);
+        return;
+      }
       ask(
         langNow==='hi'
           ? <p>आपका <strong>PAN number</strong> क्या है? <span style={{ fontSize:12, color:'var(--text-muted)' }}>(10 अंक, जैसे ABCDE1234F)</span></p>
@@ -2406,6 +2479,7 @@ export default function TaxChat({ userId, lang: langProp, profile: initialProfil
             uploadDocument={uploadDocument}
             setProcessing={setProcessing}
             knownPAN={profile?.pan || manualPAN || ''}
+            onIdentityExtracted={handleIdentityExtracted}
           />
         </div>
       )}
